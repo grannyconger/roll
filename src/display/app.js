@@ -88,7 +88,7 @@ function screenKey() {
     s.teamSeatingVisible, s.leaderboardVisible, s.biasSurveyPushId, s.displayDyslexiaFont, String(s.roundEndsAt && s.roundEndsAt.toMillis && s.roundEndsAt.toMillis())];
   // the dice sequence must never be rebuilt by a counter changing
   if (s.roundState === "rolling" && inRounds()) return JSON.stringify(["rolling", s.game, s.round, !!state.rolls[`${s.game}_${s.round}`]]);
-  return JSON.stringify(base.concat([counterText(), (s.leaderboard || []).map(x => x.uid + x.balance).join(), Object.keys(state.teams).length,
+  return JSON.stringify(base.concat([nPlayers(), counterText(), (s.leaderboard || []).map(x => x.uid + x.balance).join(), Object.keys(state.teams).length,
     s.spotlightResponseId && state.responses[s.spotlightResponseId] ? 1 : 0, surveyCountsKey()]));
 }
 

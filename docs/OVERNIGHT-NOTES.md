@@ -1,26 +1,37 @@
 # Overnight notes
 
-Written by the overnight build run. Updated after every step.
+Written by the build run. Updated after every step.
 
-## Do this first in the morning
+## Before class
 
-1. **Add `www.coachw.club` to Firebase authorized domains.** Firebase console, Authentication, Settings, Authorized domains. GitHub Pages for this account serves from the custom domain `www.coachw.club`, not `grannyconger.github.io`. Google sign-in fails on an unlisted domain. Class-code sign-in works without it.
+1. **Add `www.coachw.club` to Firebase authorized domains**, if not done. Firebase console, Authentication, Settings, Authorized domains. Google sign-in fails on an unlisted domain. Class-code sign-in works without it.
+2. **Dry run on real laptops.** Covers what the local dry run cannot: Google sign-in on the district network, real AI scoring writing back to students, and the room.
+3. **Decide on screen height.** On a 768px tall screen several student screens put the main button below the fold, worst on peer scoring and the bias survey. If the Dells are 768px, tighten spacing on those screens.
+4. **Delete the service account file** from Downloads if it is still there.
 
 ## Live URLs
 
 - Student view: https://www.coachw.club/roll-with-the-market/
-- Status: in progress
+- Assessor Worker: https://roll-with-the-market-assessor.rollwiththemarket.workers.dev
 
 ## Progress
 
-- Step 1: done before the run. Pushed at 2:13am. GitHub Pages enabled from main at root, HTTPS enforced.
-- Steps 2 to 6: done. Phase machine, join flow, game loop, Game 1 with CER, teacher hub, display, assessor Worker.
-- Steps 7 to 9 and the bias survey: built inside the step 3 to 6 commits. Archetypes and teams in `src/game.js`, Game 2 probe, counterfactual, peer scoring, and survey in the student view and hub.
-- Step 10: observer view built at `observer.html`. Read-only, aggregates only, no student names. Shows objective and standard, current phase with time on task, design intent, participation on the open prompt, CER distribution by game, Game 1 to Game 2 growth, feedback reach, and mental math accuracy. Without a `?s=` link it lists today's sessions. Not yet checked in a browser while signed in as the observer. Use the Observer link on the teacher hub.
+- Steps 1 to 10: built. Firebase, phase machine, join flow, both games, CER writing, assessor Worker with fallback, archetypes and teams, probe and counterfactual, peer scoring, bias survey, exit ticket, observer view.
+- Worker: deployed. `/health` answers from the model and the service account reads Firestore. Not yet seen: a real scored response written back to a real student.
+- Step 11, exports: checked in the local dry run. The CSV has one row per written response with the spec header, and the class summary has every section.
+- Step 12, dyslexia font pass: done. `npm run shots` in `tools/screens` renders every student and display screen in both font states and checks for clipping. Last run: 160 screenshots, none clipped.
+- Step 13, local dry run: done. `node dryrun.mjs` in `tools/screens` runs the real teacher hub, display, observer, and seven students against the Firebase emulator with the real `firestore.rules`, through the whole lesson. Last three runs passed with no problems. One earlier run reported a single problem whose report was lost, likely a timing hiccup in the driver.
 
-## Next
+## Bugs the dry run found and fixed
 
-- Step 11, exports: already present in `src/teacher/exports.js`. Needs a check against a real session.
-- Step 12: done. `tools/screens` renders every student and display screen in both font states with fake data and no Firebase, then checks each one for clipping and overflow. Run it with `cd tools/screens && npm install && npm run shots`. Output lands in `tools/screens/out`, with side by side pairs and `report.md`. Last run: 160 screenshots, no clipping or overflow. Fixes from this pass: display screens fit to the viewport, vocabulary mode keeps each term with its definition and is larger, seating names wrap, and the font toggle now appears before joining.
-- Open question for the teacher: on a 768px tall screen several student screens put the main button below the fold, worst on peer scoring and the bias survey. Students scroll. Tightening spacing would fix it if that matters.
-- Step 13: dry run.
+- The display lobby stayed at "0 joined" as students joined.
+- A second balance entry after a wrong first try could be wiped on slow wifi, leaving the round stuck at "5 of 6 entered".
+- "1 points" in the observer view and class summary.
+
+## Running the local dry run
+
+1. From the project root, with Java on the path (`brew install openjdk@21`, then `export JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=$JAVA_HOME/bin:$PATH`):
+   `tools/screens/node_modules/.bin/firebase emulators:start --config firebase.emulator.json --only firestore,auth --project roll-with-the-market`
+2. In another terminal: `cd tools/screens && node dryrun.mjs`. Report lands in `tools/screens/out-dryrun/report.md`.
+
+Nothing in either tool touches the real Firebase project.

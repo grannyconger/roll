@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "description": "Screenshot harness. Renders every screen in both font states against fake data.",
-  "scripts": { "shots": "node run.mjs" },
-  "devDependencies": { "playwright": "1.56.1" }
+  "scripts": {
+    "shots": "node run.mjs"
+  },
+  "devDependencies": {
+    "firebase-tools": "^14.27.0",
+    "playwright": "1.56.1"
+  }
 }

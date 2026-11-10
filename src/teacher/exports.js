@@ -104,7 +104,7 @@ export function openSummary(state) {
     ["Game 1", `${n.g1Pct} percent of ${n.g1n} responses`],
     ["Game 2", `${n.g2Pct} percent of ${n.g2n} responses`],
     ["Exit ticket", `${n.exitPct} percent of ${n.exitn} responses`],
-    ["Growth, Game 1 to Game 2", `${n.g2Pct - n.g1Pct} points`]
+    ["Growth, Game 1 to Game 2", `${n.g2Pct - n.g1Pct} ${Math.abs(n.g2Pct - n.g1Pct) === 1 ? "point" : "points"}`]
   ]));
   d.body.appendChild(mk("h2", "Goal"));
   d.body.appendChild(mk("p", `${n.goalMet} of ${n.students} students scored Level 3 or higher on at least 3 of 4 Game 2 responses.`));

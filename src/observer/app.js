@@ -226,7 +226,7 @@ function growthBlock() {
   if (!g2Exists) return null;
   const n = summaryNumbers({ ...state, roster: {} });
   const change = n.g2Pct - n.g1Pct;
-  const changeWords = change === 0 ? "no change" : `${change > 0 ? "up" : "down"} ${Math.abs(change)} points`;
+  const changeWords = change === 0 ? "no change" : `${change > 0 ? "up" : "down"} ${Math.abs(change)} ${Math.abs(change) === 1 ? "point" : "points"}`;
   return el("div", { class: "obs-block" },
     el("h2", null, `Level 3 or higher, ${changeWords} from Game 1 to Game 2`),
     el("table", { class: "obs-table" },

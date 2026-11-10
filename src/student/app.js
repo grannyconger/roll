@@ -535,9 +535,11 @@ async function recordMath(g, r, expected, value, priorAttempts) {
   };
   if (correct) state.mathLocal[id] = { done: true, message: `Correct. Your new balance is $${expected}.` };
   else if (revealed) state.mathLocal[id] = { done: true, message: `Your new balance is $${expected}.` };
-  try { await setDoc(subDoc(state.sessionId, "mathEntries", id), entry); } catch (e) { /* retried on next entry */ }
+  // redraw now, before the save is confirmed. Redrawing after the confirm would
+  // wipe a second answer the student has already started typing on slow wifi.
   state.lastKey = null;
   render();
+  try { await setDoc(subDoc(state.sessionId, "mathEntries", id), entry); } catch (e) { /* retried on next entry */ }
 }
 
 function settledScreen() {
