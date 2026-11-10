@@ -62,6 +62,23 @@ function cleanup() {
   state.lastKey = null;
 }
 
+// ---------- font before joining ----------
+// Before a player record exists the choice lives on this laptop, then it is
+// copied into the player record at join.
+function preJoinFont() { return localGet("rwm-dyslexia") === "1"; }
+function preJoinFontButton() {
+  setDyslexiaFont(preJoinFont());
+  const btn = el("button", { class: "btn btn-quiet", "aria-pressed": preJoinFont() ? "true" : "false" }, preJoinFont() ? "Standard font" : "Dyslexia font");
+  btn.addEventListener("click", () => {
+    const on = !preJoinFont();
+    localSet("rwm-dyslexia", on ? "1" : "0");
+    setDyslexiaFont(on);
+    btn.textContent = on ? "Standard font" : "Dyslexia font";
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  return el("p", { class: "spaced" }, btn);
+}
+
 // ---------- sign in ----------
 function renderSignIn(message) {
   state.lastKey = null;
@@ -75,7 +92,8 @@ function renderSignIn(message) {
     el("p", { class: "spaced" },
       el("button", { class: "btn-quiet btn", onclick: async () => {
         try { await signInWithClassCode(); } catch (e) { renderSignIn("Class code sign-in is off. Tell your teacher."); }
-      } }, "Sign in with the class code instead"))));
+      } }, "Sign in with the class code instead")),
+    preJoinFontButton()));
 }
 
 function renderClassCode(message) {
@@ -101,7 +119,8 @@ function renderClassCode(message) {
     el("p", null, "The code is on the board."),
     el("div", { class: "row" }, input, el("button", { class: "btn", onclick: go }, "Join")),
     message ? el("p", { class: "notice" }, message) : null,
-    el("p", { class: "spaced" }, el("button", { class: "btn btn-quiet", onclick: () => signOutNow() }, "Sign out"))));
+    el("p", { class: "spaced" }, el("button", { class: "btn btn-quiet", onclick: () => signOutNow() }, "Sign out")),
+    preJoinFontButton()));
   input.focus();
 }
 
@@ -195,6 +214,7 @@ function topBar() {
 async function toggleFont() {
   const on = !state.player.dyslexiaFont;
   setDyslexiaFont(on);
+  localSet("rwm-dyslexia", on ? "1" : "0");
   try { await updateDoc(subDoc(state.sessionId, "players", uid()), { dyslexiaFont: on }); } catch (e) { /* stays local */ }
 }
 
@@ -206,7 +226,7 @@ function renderJoin() {
     const first = (state.user.displayName || "").split(" ")[0];
     joinDraft = { name: first, emoji: null, accent: null };
   }
-  mount(root, el("main", { class: "task join" }, profileForm(joinDraft, "Join the class", submitJoin)));
+  mount(root, el("main", { class: "task join" }, profileForm(joinDraft, "Join the class", submitJoin), preJoinFontButton()));
 }
 
 function profileForm(d, title, onSubmit) {
@@ -250,7 +270,7 @@ async function submitJoin(d, errorNode) {
     balance: inGame ? lateBalance : START_BALANCE,
     balanceHistory: [inGame ? lateBalance : START_BALANCE],
     lateStart: inGame ? { game: s.game, round: s.round, balance: lateBalance } : null,
-    archetype: null, teamId: null, seat: null, calledOnCount: 0, dyslexiaFont: false
+    archetype: null, teamId: null, seat: null, calledOnCount: 0, dyslexiaFont: preJoinFont()
   };
   try {
     await setDoc(subDoc(state.sessionId, "players", uid()), player);

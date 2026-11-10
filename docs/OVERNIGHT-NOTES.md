@@ -21,5 +21,6 @@ Written by the overnight build run. Updated after every step.
 ## Next
 
 - Step 11, exports: already present in `src/teacher/exports.js`. Needs a check against a real session.
-- Step 12, code pass done: the display now fits each screen to the viewport after every mount, font toggle, font load, and resize, stepping the root size from 48px down to a 36px floor only when content overflows. Seating names and the impact modal labels wrap instead of overflowing. Still needed: a visual check of every screen in both font states in a browser. Press D on the display to toggle the font locally.
+- Step 12: done. `tools/screens` renders every student and display screen in both font states with fake data and no Firebase, then checks each one for clipping and overflow. Run it with `cd tools/screens && npm install && npm run shots`. Output lands in `tools/screens/out`, with side by side pairs and `report.md`. Last run: 160 screenshots, no clipping or overflow. Fixes from this pass: display screens fit to the viewport, vocabulary mode keeps each term with its definition and is larger, seating names wrap, and the font toggle now appears before joining.
+- Open question for the teacher: on a 768px tall screen several student screens put the main button below the fold, worst on peer scoring and the bias survey. Students scroll. Tightening spacing would fix it if that matters.
 - Step 13: dry run.
