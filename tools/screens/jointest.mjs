@@ -106,12 +106,16 @@ ok(await shows(b, /already joined/), "a second Ana L. is warned before joining")
 await b.getByRole("button", { name: "Join", exact: true }).click();
 ok(await shows(b, /Objective:/), "pressing Join again lets a different Ana L. in");
 
-// C. teacher turns class code sign-in off
-await toggle("Class code sign-in");
+// C. a session with class code sign-in off is switched back on by the hub
+await teacher.evaluate(async () => {
+  const f = await import("/src/firebase.js");
+  const sid = new URLSearchParams(location.search).get("s");
+  await f.updateDoc(f.doc(f.db, "sessions", sid), { allowAnonymous: false });
+});
+await teacher.waitForTimeout(1500);
 const c = await open("index.html");
 await enterCode(c, code);
-ok(await shows(c, /Class code sign-in is off/), "with class code sign-in off, a new student is told at the code step");
-await toggle("Class code sign-in");
+ok(await shows(c, /Join the class/), "the hub turns class code sign-in back on, so a new student can join");
 
 // D. joining locked
 await toggle("Joining locked");
@@ -131,6 +135,14 @@ const dupRow = teacher.locator(".student-row").last();
 await dupRow.getByRole("button", { name: "Remove" }).click();
 await teacher.getByRole("button", { name: "Confirm remove" }).click();
 ok(await shows(teacher, /Students \(1\)/), "teacher removes a duplicate student");
+
+// G. the hub keeps its scroll position through redraws
+await teacher.setViewportSize({ width: 1366, height: 420 });
+await teacher.waitForTimeout(500);
+const scrolledTo = await teacher.evaluate(() => { const c = document.querySelector(".col-1"); c.scrollTop = 250; return c.scrollTop; });
+await teacher.waitForTimeout(7000);
+const after = await teacher.evaluate(() => document.querySelector(".col-1").scrollTop);
+ok(scrolledTo > 0 && after === scrolledTo, `hub column stays scrolled through redraws (${scrolledTo} then ${after})`);
 
 await browser.close();
 server.close();

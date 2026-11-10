@@ -60,7 +60,14 @@ function startSession(sid) {
   state.sessionId = sid;
   engine = makeEngine({ sessionId: sid, get: () => state });
   const byId = l => Object.fromEntries(l.map(d => [d.id, d]));
-  state.unsubs.push(watchSession(sid, s => { state.session = s; setAssessorUrl(s && s.assessorUrl); schedule(); }));
+  state.unsubs.push(watchSession(sid, s => {
+    state.session = s;
+    setAssessorUrl(s && s.assessorUrl);
+    // students join only with the class code, so it is never left off.
+    // Sessions made before this change, or with the old toggle off, are switched on here.
+    if (s && s.allowAnonymous !== true && engine) engine.setSession({ allowAnonymous: true }).catch(() => {});
+    schedule();
+  }));
   for (const name of ["players", "roster", "decisions", "rolls", "responses", "feedback", "teams", "probes", "peerReviews", "biasSurveys", "quizAnswers"]) {
     state.unsubs.push(watchCollection(sid, name, l => { state[name] = byId(l); schedule(); }));
   }
@@ -188,6 +195,9 @@ function render() {
   const s = state.session;
   if (!s) { mount(root, el("main", { class: "center-screen" }, el("h1", null, "Loading session"))); return; }
   const act = primaryAction();
+  // the hub redraws every few seconds. Keep every scrolled area where the teacher left it.
+  const scrolled = [...root.querySelectorAll(".col, .feed, .students")].map(n => [n.scrollTop, n.scrollLeft]);
+  const pageY = window.scrollY;
   mount(root, el("main", { class: "hub" },
     el("section", { class: "col col-1" },
       el("div", { class: "hub-head" },
@@ -201,6 +211,8 @@ function render() {
       phasePanel(), togglesPanel(), randomizerPanel(), healthPanel(), exportPanel()),
     el("section", { class: "col col-2" }, responsesPanel()),
     el("section", { class: "col col-3" }, teamsPanel(), distributionPanel(), spotlightPanel(), flagsPanel(), historyPanel(), studentsPanel())));
+  root.querySelectorAll(".col, .feed, .students").forEach((n, i) => { if (scrolled[i]) { n.scrollTop = scrolled[i][0]; n.scrollLeft = scrolled[i][1]; } });
+  if (pageY) window.scrollTo(0, pageY);
 }
 
 function linkRow() {
@@ -270,7 +282,6 @@ function togglesPanel() {
       s.biasSurveyPushId ? `Bias survey: open (${s.biasSurveyPushId})` : "Bias survey: push"),
     toggle("Display dyslexia font", s.displayDyslexiaFont, { displayDyslexiaFont: !s.displayDyslexiaFont }),
     toggle("Display drumroll", s.displaySound !== false, { displaySound: s.displaySound === false }),
-    toggle("Class code sign-in", s.allowAnonymous, { allowAnonymous: !s.allowAnonymous }),
     toggle("Joining locked", s.joinLocked, { joinLocked: !s.joinLocked })));
 }
 
