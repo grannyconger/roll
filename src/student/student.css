@@ -1,0 +1,77 @@
+/* Student view. Desktop only, Dell Latitude screens around 1366 to 1920 wide. */
+.topbar { padding: 0.8em 2.2em 0.6em; background: var(--light); }
+.objective { font-size: 0.9em; }
+.topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 1em; flex-wrap: wrap; margin-top: 0.3em; }
+.me { font-size: 1.15em; font-weight: 700; }
+.balance { margin-left: 1em; font-weight: 400; }
+.tools { display: flex; flex-wrap: wrap; gap: 0.2em; }
+.task { max-width: 960px; margin: 0 auto; padding: 1.6em 2.2em 4em; }
+.center-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2em; }
+.center-block { text-align: center; padding-top: 8vh; }
+h1 { font-size: 2.2em; }
+h2 { font-size: 1.3em; }
+.round-label { font-size: 1.1em; font-weight: 700; margin-bottom: 0.2em; }
+.time-left { font-size: 1.1em; }
+.timer { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 600; }
+.callout { font-weight: 700; font-size: 1.1em; }
+.notice { font-weight: 700; min-height: 1.4em; }
+.spaced { margin-top: 1.4em; }
+.small { font-size: 0.85em; }
+.row { display: flex; align-items: center; gap: 0.6em; flex-wrap: wrap; }
+.field { display: block; font-weight: 700; margin: 1.1em 0 0.4em; font-size: 1em; }
+.choices { display: flex; gap: 1em; margin: 0.6em 0 1em; }
+.choices.wrap { flex-wrap: wrap; }
+.choice-sm { font-size: 1.1em; min-width: 5em; padding: 0.45em 0.9em; }
+.writing { margin-bottom: 1em; }
+.stem { font-size: 1.05em; margin: 0 0 0.5em; }
+.quote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.big-quote { font-size: 1.2em; }
+.big-num { font-size: 1.6em; font-weight: 600; }
+input[type=number] { width: 7em; font-size: 1.4em; }
+
+.emoji-grid { display: grid; grid-template-columns: repeat(12, 2.6em); gap: 0.3em; }
+.emoji { font-size: 1.5em; width: 1.7em; height: 1.7em; border: 3px solid transparent; background: transparent; cursor: pointer; border-radius: 3px; padding: 0; }
+.emoji[aria-checked="true"] { border-color: var(--lightText); }
+.color-row { display: flex; flex-wrap: wrap; gap: 0.5em; }
+.swatch { font: inherit; font-weight: 700; display: inline-flex; align-items: center; gap: 0.4em; padding: 0.35em 0.7em; background: transparent; border: 3px solid transparent; border-radius: 3px; cursor: pointer; }
+.swatch[aria-checked="true"] { border-color: var(--lightText); }
+.swatch-dot { width: 1em; height: 1em; border-radius: 50%; display: inline-block; }
+
+.rules li { font-size: 1.4em; margin-bottom: 0.5em; }
+.agenda li { margin-bottom: 0.3em; }
+.agenda-now { font-weight: 700; }
+.agenda-done { color: var(--lightMuted); }
+
+.impact { padding-top: 0.5em; }
+.impact-row { display: grid; grid-template-columns: 9em 1fr; gap: 1em; font-size: 1.25em; padding: 0.4em 0; }
+.impact-k { color: var(--lightMuted); }
+.impact-v { font-weight: 700; }
+.hint { margin: 1em 0; }
+.hint-math { font-size: 1.6em; }
+.result { font-size: 1.5em; font-weight: 700; }
+
+.chart { width: 100%; max-width: 640px; height: auto; display: block; margin: 1em 0; }
+.chart.jolt { animation: jolt 0.5s ease-out; }
+@keyframes jolt { 0% { transform: translateY(0); } 30% { transform: translateY(-10px); } 60% { transform: translateY(4px); } 100% { transform: translateY(0); } }
+
+.fb { padding: 1em 0 1.2em; }
+.fb + .fb { border-top: 2px solid var(--line); }
+.fb-head { color: var(--lightMuted); margin-bottom: 0.2em; }
+.fb-level { font-size: 1.3em; font-weight: 700; }
+.fb.arrive { animation: arrive 0.6s ease-out; }
+@keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.level-pick { display: flex; flex-direction: column; gap: 0.4em; margin: 0.6em 0; }
+.level-btn { font: inherit; text-align: left; padding: 0.55em 0.8em; background: #FFFFFF; color: var(--lightText); border: 2px solid var(--lightMuted); border-radius: 3px; cursor: pointer; }
+.level-btn[aria-checked="true"] { background: var(--lightText); color: var(--light); border-color: var(--lightText); }
+
+.traps { display: flex; flex-direction: column; gap: 0.7em; margin: 1em 0; }
+.trap { display: grid; grid-template-columns: 1.6em 1fr; gap: 0.6em; align-items: start; }
+.trap input { width: 1.3em; height: 1.3em; margin-top: 0.2em; }
+.members li { font-size: 1.2em; }
+.lesson-line { font-size: 1.35em; }
+.objective-big { font-size: 1.5em; font-weight: 700; }
+.counterfactual { font-size: 2em; }
+.counterfactual-2 { font-size: 1.6em; font-weight: 700; }
+.leaderboard ol { padding-left: 1.4em; }
+.leaderboard li { font-size: 1.1em; }
