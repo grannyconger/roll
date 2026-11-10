@@ -1,11 +1,11 @@
 /* Student view. Desktop only, Dell Latitude screens around 1366 to 1920 wide. */
-.topbar { padding: 0.8em 2.2em 0.6em; background: var(--light); }
+.topbar { padding: 0.6em 2.2em 0.4em; background: var(--light); }
 .objective { font-size: 0.9em; }
 .topbar-row { display: flex; align-items: center; justify-content: space-between; gap: 1em; flex-wrap: wrap; margin-top: 0.3em; }
 .me { font-size: 1.15em; font-weight: 700; }
 .balance { margin-left: 1em; font-weight: 400; }
 .tools { display: flex; flex-wrap: wrap; gap: 0.2em; }
-.task { max-width: 960px; margin: 0 auto; padding: 1.6em 2.2em 4em; }
+.task { max-width: 960px; margin: 0 auto; padding: 1em 2.2em 3em; }
 .center-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2em; }
 .center-block { text-align: center; padding-top: 8vh; }
 h1 { font-size: 2.2em; }
@@ -15,11 +15,11 @@ h2 { font-size: 1.3em; }
 .timer { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 600; }
 .callout { font-weight: 700; font-size: 1.1em; }
 .notice { font-weight: 700; min-height: 1.4em; }
-.spaced { margin-top: 1.4em; }
+.spaced { margin-top: 1em; }
 .small { font-size: 0.85em; }
 .row { display: flex; align-items: center; gap: 0.6em; flex-wrap: wrap; }
-.field { display: block; font-weight: 700; margin: 1.1em 0 0.4em; font-size: 1em; }
-.choices { display: flex; gap: 1em; margin: 0.6em 0 1em; }
+.field { display: block; font-weight: 700; margin: 0.8em 0 0.35em; font-size: 1em; }
+.choices { display: flex; gap: 1em; margin: 0.4em 0 0.7em; }
 .choices.wrap { flex-wrap: wrap; }
 .choice-sm { font-size: 1.1em; min-width: 5em; padding: 0.45em 0.9em; }
 .writing { margin-bottom: 1em; }
@@ -75,3 +75,9 @@ input[type=number] { width: 7em; font-size: 1.4em; }
 .counterfactual-2 { font-size: 1.6em; font-weight: 700; }
 .leaderboard ol { padding-left: 1.4em; }
 .leaderboard li { font-size: 1.1em; }
+
+/* Student textareas: tall enough for three lines, short enough that the submit button stays on a 768px screen */
+.task textarea { min-height: 4.6em; }
+.level-pick { gap: 0.3em; }
+.level-btn { padding: 0.4em 0.8em; }
+.round-change { font-size: 1.15em; font-weight: 700; margin: 0 0 0.4em; }

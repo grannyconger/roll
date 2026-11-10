@@ -546,10 +546,15 @@ function settledScreen() {
   const s = state.session;
   const p = state.player;
   const response = state.responses[key(s.game, s.round)];
+  const h = p.balanceHistory || [];
+  const change = h.length >= 2 ? h[h.length - 1] - h[h.length - 2] : null;
   return el("section", null,
     el("p", { class: "round-label" }, roundLabel()),
     el("h1", null, "Round over"),
     el("p", null, "Balance ", el("span", { class: "money big-num" }, "$" + p.balance)),
+    change !== null ? el("p", { class: "round-change" },
+      el("span", { class: change >= 0 ? "dir-up" : "dir-down" }, change >= 0 ? "▲ " : "▼ ", el("span", { class: "money" }, signedMoney(change))),
+      " this round") : null,
     s.game > 0 ? balanceChart(p.balanceHistory || [], p.accentColor) : null,
     s.game === 2 && response ? feedbackItem(response) : null,
     s.leaderboardVisible ? leaderboardList() : null);

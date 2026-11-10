@@ -11,7 +11,7 @@ Written by the build run. Updated after every step.
 
 ## Live URLs
 
-- Student view: https://www.coachw.club/roll-with-the-market/
+- Student view: https://www.coachw.club/roll/
 - Assessor Worker: https://roll-with-the-market-assessor.rollwiththemarket.workers.dev
 
 ## Progress
