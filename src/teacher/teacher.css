@@ -1,0 +1,39 @@
+/* Teacher hub. One screen, no page scroll. Panels scroll inside themselves if they must. */
+body { font-size: 15px; overflow: hidden; }
+.center-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1em; }
+.picker { padding: 2em 3em; max-width: 900px; }
+.session-list li { margin: 0.5em 0; font-size: 1.1em; }
+.hub { display: grid; grid-template-columns: 1.05fr 1.1fr 1fr; gap: 1.4em; height: 100vh; padding: 1em 1.4em; }
+.col { overflow-y: auto; min-height: 0; }
+.col-2 { display: flex; flex-direction: column; }
+.col-2 .panel { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.hub-head h1 { font-size: 1.6em; margin: 0; }
+.now { font-size: 1.2em; font-weight: 700; margin: 0.5em 0 0.2em; }
+.now-timer { font-size: 1.4em; margin: 0 0 0.4em; }
+.timer { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 600; }
+.primary { display: block; width: 100%; font-size: 2em; padding: 0.7em 0.5em; margin: 0.3em 0 0.6em; }
+.btn-small { font-size: 0.92em; padding: 0.4em 0.75em; }
+.toggle[aria-pressed="true"] { background: var(--up); }
+.row { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; margin: 0.3em 0; }
+.toggles { display: flex; flex-wrap: wrap; gap: 0.35em; }
+.panel { margin: 0 0 1.1em; }
+.panel h2 { font-size: 1.05em; margin: 0 0 0.35em; }
+.small { font-size: 0.88em; }
+.notice { font-weight: 700; }
+.feed { overflow-y: auto; flex: 1; min-height: 0; }
+.feed-item { padding: 0.5em 0; border-bottom: 1px solid var(--line); }
+.feed-top { display: flex; gap: 0.5em; align-items: baseline; flex-wrap: wrap; }
+.feed-level { font-weight: 700; margin-left: auto; }
+.feed-text { margin: 0.2em 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dist { border-collapse: collapse; }
+.dist th, .dist td { text-align: left; padding: 0.15em 0.9em 0.15em 0; }
+.tray-item { padding: 0.4em 0; border-bottom: 1px solid var(--line); }
+.flag-line { margin: 0.2em 0; }
+.students { max-height: 30vh; overflow-y: auto; }
+.student-row { padding: 0.1em 0; }
+.health { font-weight: 700; font-size: 1.1em; margin: 0 0 0.3em; }
+.health-ok { color: var(--up); }
+.health-degraded { color: var(--down); }
+.health-down { color: var(--down); }
+.picked { font-size: 1.4em; font-weight: 700; }
+select { font-size: 0.92em; padding: 0.25em 0.4em; }
