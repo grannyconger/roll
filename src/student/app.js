@@ -108,7 +108,13 @@ function renderClassCode(message) {
       snap.forEach(d => found.push({ id: d.id, ...d.data() }));
       found.sort((a, b) => (millisOf(b.createdAt) || 0) - (millisOf(a.createdAt) || 0));
       if (!found.length) return renderClassCode("No class has that code. Check the board.");
-      startSession(found[0].id);
+      const s = found[0];
+      // say so now, before the student fills in the whole join form
+      if (!(await alreadyJoined(s.id))) {
+        if (s.joinLocked) return renderClassCode("Joining is closed. Tell your teacher.");
+        if (isAnon() && !s.allowAnonymous) return renderClassCode("Class code sign-in is off. Tell your teacher, then enter the code again.");
+      }
+      startSession(s.id);
     } catch (e) {
       renderClassCode("That did not work. Check the code and try again.");
     }
@@ -272,18 +278,28 @@ async function submitJoin(d, errorNode) {
     lateStart: inGame ? { game: s.game, round: s.round, balance: lateBalance } : null,
     archetype: null, teamId: null, seat: null, calledOnCount: 0, dyslexiaFont: preJoinFont()
   };
+  state.joinError = null;
+  errorNode.textContent = "Joining.";
   try {
     await setDoc(subDoc(state.sessionId, "players", uid()), player);
     await setDoc(subDoc(state.sessionId, "roster", uid()), {
       uid: uid(), email: state.user.email || null, accountName: state.user.displayName || d.name
     }).catch(() => {});
-    state.joinError = null;
     joinDraft = null;
   } catch (e) {
-    if (s.joinLocked) errorNode.textContent = "Joining is closed. Tell your teacher.";
-    else if (isAnon() && !s.allowAnonymous) errorNode.textContent = "Class code sign-in is off. Tell your teacher.";
-    else errorNode.textContent = "That did not work. Sign in with your school account.";
+    // A refused write first shows the player locally, then removes it, which
+    // redraws the form. Keep the message in state so the redrawn form shows it.
+    state.joinError = joinRefusedMessage(s);
+    if (!state.player) renderJoin();
   }
+}
+
+function joinRefusedMessage(s) {
+  if (s.joinLocked) return "Joining is closed. Tell your teacher.";
+  if (isAnon() && !s.allowAnonymous) return "Class code sign-in is off. Tell your teacher.";
+  const email = (state.user && state.user.email) || "";
+  if (email && !/@greermiddlecollege\.org$/i.test(email)) return `${email} is not a school account. Sign out and use your school account, or tell your teacher.`;
+  return "That did not work. Tell your teacher.";
 }
 const PHASES_AFTER_START = ["game1", "game1-complete", "feedback-1", "cer-lesson", "team-assignment", "team-huddle", "game2", "game2-probe", "game2-complete", "peer-scoring", "debrief", "exit-ticket", "closure"];
 
