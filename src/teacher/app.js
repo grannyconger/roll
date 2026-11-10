@@ -6,7 +6,7 @@ import { watchSession, watchCollection, measureClockOffset, serverNow, millisOf,
 import { GAMES, isCheckpointRound } from "../game.js";
 import { el, mount, countdown, bootPage, nameNode } from "../shared/ui.js";
 import { CER_STEPS, RULES } from "../shared/content.js";
-import { ASSESSOR_URL } from "../shared/config.js";
+import { assessorUrl, setAssessorUrl } from "../shared/config.js";
 import { makeEngine, createSectionSession } from "./engine.js";
 import { exportCsv, openSummary } from "./exports.js";
 
@@ -60,7 +60,7 @@ function startSession(sid) {
   state.sessionId = sid;
   engine = makeEngine({ sessionId: sid, get: () => state });
   const byId = l => Object.fromEntries(l.map(d => [d.id, d]));
-  state.unsubs.push(watchSession(sid, s => { state.session = s; schedule(); }));
+  state.unsubs.push(watchSession(sid, s => { state.session = s; setAssessorUrl(s && s.assessorUrl); schedule(); }));
   for (const name of ["players", "roster", "decisions", "rolls", "responses", "feedback", "teams", "probes", "peerReviews", "biasSurveys"]) {
     state.unsubs.push(watchCollection(sid, name, l => { state[name] = byId(l); schedule(); }));
   }
@@ -276,13 +276,19 @@ function healthPanel() {
     el("p", { class: "health health-" + h }, shapes[h] + " " + words[h]),
     el("div", { class: "row" },
       el("button", { class: "btn btn-small", onclick: () => run(checkHealth) }, "Run health check"),
-      state.healthCheck ? el("span", { class: "small" }, state.healthCheck) : null));
+      state.healthCheck ? el("span", { class: "small" }, state.healthCheck) : null),
+    el("p", { class: "small muted" }, "Worker: " + assessorUrl()),
+    el("button", { class: "btn btn-quiet btn-small", onclick: () => {
+      const url = window.prompt("Assessor Worker URL for this session. Leave blank to use the default.", state.session.assessorUrl || "");
+      if (url === null) return;
+      run(() => engine.setSession({ assessorUrl: url.trim() || null }));
+    } }, "Change Worker URL"));
 }
 
 async function checkHealth() {
   const t0 = performance.now();
   try {
-    const res = await fetch(ASSESSOR_URL + "/health", { cache: "no-store" });
+    const res = await fetch(assessorUrl() + "/health", { cache: "no-store" });
     const j = await res.json();
     state.healthCheck = j.ok ? `OK in ${j.latencyMs} ms on ${j.model}` : "Failed: " + (j.error || res.status);
   } catch (e) {

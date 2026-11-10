@@ -14,7 +14,7 @@ import {
   PROBE_TEXT, CER_STEPS, MIND_TRAPS, WAYGROUND_URL, SCORING_GUIDE
 } from "../shared/content.js";
 import { ACCENTS, accentOnLight } from "../shared/tokens.js";
-import { ASSESSOR_URL } from "../shared/config.js";
+import { assessorUrl, setAssessorUrl } from "../shared/config.js";
 
 const root = document.getElementById("app");
 const state = {
@@ -111,7 +111,7 @@ function startSession(sid) {
   state.sessionId = sid;
   localSet("rwm-session", sid);
   const me = uid();
-  state.unsubs.push(watchSession(sid, s => { state.session = s; render(); }, () => renderClassCode("That class is not available.")));
+  state.unsubs.push(watchSession(sid, s => { state.session = s; setAssessorUrl(s && s.assessorUrl); render(); }, () => renderClassCode("That class is not available.")));
   state.unsubs.push(onSnapshot(subDoc(sid, "players", me), snap => {
     state.player = snap.exists() ? snap.data() : null;
     if (state.player) setDyslexiaFont(state.player.dyslexiaFont);
@@ -425,7 +425,7 @@ async function saveResponse(id, r) {
 }
 
 function requestAssessment(responseId, r) {
-  fetch(ASSESSOR_URL + "/assess", {
+  fetch(assessorUrl() + "/assess", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       sessionId: state.sessionId, responseId, game: r.game, round: r.round, decision: r.decision,

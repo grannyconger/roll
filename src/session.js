@@ -1,6 +1,6 @@
 // Phase machine and shared state subscriptions.
 import { db, doc, onSnapshot, collection, query, where } from "./firebase.js";
-import { ASSESSOR_URL } from "./shared/config.js";
+import { assessorUrl } from "./shared/config.js";
 
 export const PHASES = [
   "lobby", "agenda", "vocab-warmup", "learn-to-play",
@@ -57,7 +57,10 @@ let clockOffsetMs = 0;
 export async function measureClockOffset() {
   try {
     const t0 = Date.now();
-    const res = await fetch(ASSESSOR_URL + "/time", { cache: "no-store" });
+    const ctl = new AbortController();
+    const stop = setTimeout(() => ctl.abort(), 3000);
+    const res = await fetch(assessorUrl() + "/time", { cache: "no-store", signal: ctl.signal });
+    clearTimeout(stop);
     const t1 = Date.now();
     const { now } = await res.json();
     clockOffsetMs = now - (t0 + t1) / 2;

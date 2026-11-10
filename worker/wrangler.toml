@@ -1,0 +1,10 @@
+name = "roll-with-the-market-assessor"
+main = "index.js"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGINS = "https://www.coachw.club,https://coachw.club,https://grannyconger.github.io,http://localhost:8000,http://127.0.0.1:8000"
+
+[observability]
+enabled = true

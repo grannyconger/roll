@@ -8,7 +8,7 @@ import {
   GAMES, START_BALANCE, rollMarket, decideSecondsFor, isDoubleRound, isTeamRound, recomputeHistory,
   classifyClass, buildTeams, assignPeerReviews, averageBalance, valueOfChoice
 } from "../game.js";
-import { ASSESSOR_URL } from "../shared/config.js";
+import { assessorUrl, setAssessorUrl } from "../shared/config.js";
 
 export const ROLL_ANIMATION_MS = 9000;
 
@@ -304,7 +304,7 @@ export function makeEngine(ctx) {
       const rec = retries[r.id] || (retries[r.id] = { n: 0, last: 0 });
       if (rec.n >= 4 || now - rec.last < 15000) continue;
       rec.n++; rec.last = now;
-      fetch(ASSESSOR_URL + "/assess", {
+      fetch(assessorUrl() + "/assess", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId: sid, responseId: r.id, game: r.game, round: r.round, decision: r.decision,
           text: r.text, isDoubleRound: isDoubleRound(r.game, r.round), isExitTicket: r.kind === "exit" })

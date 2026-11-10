@@ -1,8 +1,8 @@
-.DS_Store
-node_modules/
-.firebase/
-*.log
-.dev.vars
-.wrangler/
-service-account*.json
 .claude/settings.local.json
+.dev.vars
+.DS_Store
+.firebase/
+.wrangler/
+*.log
+node_modules/
+service-account*.json
