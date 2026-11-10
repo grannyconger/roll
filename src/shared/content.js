@@ -190,7 +190,7 @@ export const CER_STEPS = [
 ];
 
 // Sparkle Points. CER analysis questions students answer while they wait for the class.
-// Up to three after each written response. Correct is +3, wrong is -1.
+// Up to three after each written response in Game 1, peer scoring, and the exit ticket. Correct is +3, wrong is -1.
 export const SPARKLE_RIGHT = 3;
 export const SPARKLE_WRONG = -1;
 export const QUIZ_PER_WAIT = 3;

@@ -17,7 +17,7 @@ Written by the build run. Updated after every step.
 - The student view runs in full screen.
 - The student's chosen color drives every button and highlight.
 - Timers cut by 15 seconds except written responses. Practice 30, normal 45, team 105, team assignment 45, feedback 105, huddle 165. Checkpoints, exit ticket, and peer scoring unchanged.
-- Sparkle Points: up to three CER analysis questions after each written response, peer scoring, and the exit ticket. +3 right, -1 wrong. 36 questions in `src/shared/content.js`.
+- Sparkle Points: up to three CER analysis questions after each written response in Game 1, after peer scoring, and after the exit ticket. None in Game 2. +3 right, -1 wrong. 36 questions in `src/shared/content.js`.
 - CER lesson is 14 steps with real-life examples, three turn and talks, and four live polls.
 - Display: bigger dice, a 15 second cinematic roll, a synthesized drumroll under the direction die, a full ranked leaderboard of every student, an emoji wall in the lobby and during decide rounds, and a table leaderboard by average balance in Game 2 rounds 1 to 4.
 - Hub: drag and drop between tables, Add a table, display drumroll toggle.

@@ -616,6 +616,7 @@ async function lesson() {
   }));
   await shot(observer, "observer-end");
   const qa = await list(`sessions/${SID}/quizAnswers`);
+  check(qa.filter(a => a.kind === "quiz" && String(a.slot).startsWith("2_")).length === 0, "no Sparkle Points questions during Game 2");
   check(qa.filter(a => a.kind === "quiz").length > 20, `${qa.filter(a => a.kind === "quiz").length} Sparkle Points quiz answers stored`);
   // the leaderboard shows every student
   await teacherToggle("Leaderboard");

@@ -976,7 +976,8 @@ function sparkleTotal() {
 }
 
 function quizSlotFor(g, r) {
-  if (g < 1) return null;
+  // Game 1 only. Game 2 waits stay on the round.
+  if (g !== 1) return null;
   return state.responses[key(g, r)] ? `${g}_${r}` : null;
 }
 
