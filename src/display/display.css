@@ -36,8 +36,8 @@ h2 { font-size: 1.1rem; }
 .trap-count { font-weight: 600; font-size: 0.8rem; }
 .spotlight-text { font-size: 1.15rem; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 34em; }
 .closure-objective { font-size: 1.6rem; max-width: 22em; }
-.seating-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem 1.2rem; }
-.seating .team ul { list-style: none; padding: 0; margin: 0; font-size: 0.8rem; }
+.seating-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.4rem 1.2rem; }
+.seating .team ul { list-style: none; padding: 0; margin: 0; font-size: 0.8rem; overflow-wrap: anywhere; }
 .seating .team h2 { margin: 0 0 0.1em; }
 .board { font-size: 0.95rem; columns: 2; column-gap: 2rem; }
 .board li { display: flex; justify-content: space-between; gap: 1rem; break-inside: avoid; }

@@ -21,5 +21,5 @@ Written by the overnight build run. Updated after every step.
 ## Next
 
 - Step 11, exports: already present in `src/teacher/exports.js`. Needs a check against a real session.
-- Step 12: dyslexia font pass on every screen, both font states.
+- Step 12, code pass done: the display now fits each screen to the viewport after every mount, font toggle, font load, and resize, stepping the root size from 48px down to a 36px floor only when content overflows. Seating names and the impact modal labels wrap instead of overflowing. Still needed: a visual check of every screen in both font states in a browser. Press D on the display to toggle the font locally.
 - Step 13: dry run.

@@ -37,6 +37,35 @@ watchAuth(async user => {
 
 function applyFont() {
   setDyslexiaFont(state.localFont || (state.session && state.session.displayDyslexiaFont));
+  requestAnimationFrame(fitToScreen);
+}
+
+// Every display screen is one fixed viewport with overflow hidden, so text that
+// runs long is clipped silently. OpenDyslexic is wider and taller than the default
+// font. After each mount, step the root size down from 48px until the screen fits,
+// stopping at a floor that stays readable from the back of the room.
+const BASE_PX = 48;
+const FLOOR_PX = 36;
+function fitToScreen() {
+  const html = document.documentElement;
+  const screenNode = root.firstElementChild;
+  html.style.fontSize = "";
+  if (!screenNode) return;
+  let px = BASE_PX;
+  while (overflows(screenNode) && px > FLOOR_PX) {
+    px -= 2;
+    html.style.fontSize = px + "px";
+  }
+}
+
+function overflows(node) {
+  return node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1;
+}
+
+window.addEventListener("resize", () => requestAnimationFrame(fitToScreen));
+if (document.fonts) {
+  document.fonts.ready.then(fitToScreen);
+  document.fonts.addEventListener("loadingdone", () => requestAnimationFrame(fitToScreen));
 }
 
 function count(obj, fn) { return Object.values(obj).filter(fn).length; }
@@ -50,6 +79,7 @@ function render() {
   if (k === state.lastKey) return;
   state.lastKey = k;
   mount(root, screen());
+  fitToScreen();
 }
 
 function screenKey() {

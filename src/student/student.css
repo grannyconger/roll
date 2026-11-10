@@ -43,7 +43,7 @@ input[type=number] { width: 7em; font-size: 1.4em; }
 .agenda-done { color: var(--lightMuted); }
 
 .impact { padding-top: 0.5em; }
-.impact-row { display: grid; grid-template-columns: 9em 1fr; gap: 1em; font-size: 1.25em; padding: 0.4em 0; }
+.impact-row { display: grid; grid-template-columns: minmax(9em, max-content) minmax(0, 1fr); gap: 1em; font-size: 1.25em; padding: 0.4em 0; }
 .impact-k { color: var(--lightMuted); }
 .impact-v { font-weight: 700; }
 .hint { margin: 1em 0; }
