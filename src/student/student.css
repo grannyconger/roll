@@ -81,3 +81,103 @@ input[type=number] { width: 7em; font-size: 1.4em; }
 .level-pick { gap: 0.3em; }
 .level-btn { padding: 0.4em 0.8em; }
 .round-change { font-size: 1.15em; font-weight: 700; margin: 0 0 0.4em; }
+
+/* ---------- accent color, chosen at join, used for every action ---------- */
+.btn:not(.btn-quiet) { background: var(--accent); color: var(--light); }
+.btn:not(.btn-quiet):hover:not(:disabled) { filter: brightness(1.12); }
+.btn-quiet { color: var(--lightText); }
+.btn-big { font-size: 1.35em; }
+:focus-visible { outline-color: var(--accent); }
+
+/* top bar */
+.topbar { padding: 0.55em 2.2em 0.35em; display: flex; flex-direction: column; gap: 0.15em; }
+.topbar-row { margin-top: 0; }
+.me { font-size: 1.25em; }
+.stats { display: flex; gap: 1.6em; }
+.stat { display: flex; flex-direction: column; line-height: 1.1; }
+.stat-k { font-size: 0.72em; color: var(--lightMuted); }
+.stat-v { font-size: 1.25em; font-weight: 600; }
+.objective { font-size: 0.82em; color: var(--lightMuted); }
+.tools .btn-quiet { font-size: 0.85em; padding: 0.3em 0.45em; }
+.offline { font-weight: 700; margin: 0.2em 0 0; }
+
+/* a new screen arrives once. Nothing moves after that. */
+.task.enter > * { animation: screen-in 0.35s ease-out; }
+@keyframes screen-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.hero-emoji { font-size: 3em; line-height: 1; margin: 0 0 0.15em; }
+.hello { font-size: 1.15em; font-weight: 700; color: var(--accent); }
+.code-input { font-size: 1.8em; width: 7em; text-transform: uppercase; letter-spacing: 0.08em; text-align: center; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+.name-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1em; }
+.name-row input { width: 100%; }
+.emoji[aria-checked="true"] { border-color: var(--accent); transform: scale(1.12); }
+.swatch[aria-checked="true"] { border-color: currentColor; }
+
+/* the IN and OUT picks */
+.choices { gap: 1.2em; }
+.choice-card { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 0.5em; align-items: center; text-align: left; font-size: 1em; min-width: 0; width: 15em; padding: 0.7em 1em; border-color: var(--accent); transition: transform 0.12s ease-out; }
+.choice-card:hover { transform: translateY(-2px); }
+.choice-icon { grid-row: span 2; font-size: 2.2em; line-height: 1; }
+.choice-word { font-size: 2em; font-weight: 700; line-height: 1; }
+.choice-sub { font-size: 0.85em; font-weight: 400; }
+.choice-card[aria-pressed="true"] { background: var(--accent); color: var(--light); }
+.choice-card[aria-pressed="true"] .choice-word::after { content: "  ✓"; }
+.choice[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--light); }
+.level-btn[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+
+/* waiting, with the Sparkle Points challenge beside it */
+.stamp { font-size: 3.4em; line-height: 1; margin: 0.1em 0; animation: stamp 0.45s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes stamp { from { transform: scale(2.2) rotate(-12deg); opacity: 0; } to { transform: none; opacity: 1; } }
+.pick-line { font-size: 1.2em; }
+.wait-split { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 2.4em; align-items: start; padding-top: 1em; }
+.wait-head { text-align: center; padding-top: 2vh; }
+.wait-head h1 { font-size: 1.7em; }
+.quiz { padding: 0.2em 0 0; }
+.quiz-top { display: flex; justify-content: space-between; font-weight: 700; color: var(--accent); margin-bottom: 0.4em; }
+.quiz-scenario { font-size: 1.15em; white-space: pre-wrap; }
+.quiz-result { font-size: 1.5em; font-weight: 700; }
+.quiz-done { font-size: 1.8em; font-weight: 700; color: var(--accent); }
+.options { display: flex; flex-direction: column; gap: 0.4em; margin: 0.4em 0 0.8em; }
+.option-btn { font: inherit; text-align: left; padding: 0.5em 0.8em; background: #FFFFFF; color: var(--lightText); border: 2px solid var(--lightMuted); border-radius: 3px; cursor: pointer; }
+.option-btn:hover:not(:disabled) { border-color: var(--accent); }
+.option-btn:disabled { opacity: 0.6; }
+.option-static { padding: 0.45em 0.8em; border: 2px solid transparent; }
+.option-static.is-mine { border-color: var(--lightMuted); }
+.option-static.is-answer { font-weight: 700; border-color: var(--accent); color: var(--accent); }
+.poll-result { font-size: 1.4em; font-weight: 700; }
+
+/* CER lesson */
+.scenario { font-size: 1.25em; color: var(--lightMuted); }
+.cer-parts { display: grid; grid-template-columns: max-content 1fr; gap: 0.6em 1.2em; font-size: 1.25em; }
+.cer-parts dt { font-weight: 700; }
+.cer-parts dd { margin: 0; }
+.talk .lesson-line { max-width: 30em; margin-left: auto; margin-right: auto; }
+.rules .rule-new { font-weight: 700; }
+.rule-example { display: block; font-weight: 400; font-size: 0.75em; color: var(--lightMuted); margin-top: 0.2em; }
+.traps-list dt { font-weight: 700; margin-top: 0.5em; }
+.traps-list dd { margin: 0; }
+.trap-life { display: block; color: var(--lightMuted); font-size: 0.9em; }
+
+/* round over */
+.settled-balance { font-size: 1.2em; margin-bottom: 0.1em; }
+.big-num { font-size: 1.9em; }
+.result { color: var(--accent); }
+.leaderboard { margin-top: 1em; max-width: 34em; }
+.my-rank { font-weight: 700; color: var(--accent); }
+.lb-rows { list-style: none; padding: 0; margin: 0; }
+.lb-row { display: grid; grid-template-columns: 2.2em minmax(0, 1fr) max-content; gap: 0.6em; padding: 0.2em 0; font-size: 1.05em; }
+.lb-row.lb-me { font-weight: 700; }
+.lb-rank { text-align: right; }
+.members li { list-style: none; }
+
+/* keep the main button on a 768px screen */
+.impact-row { font-size: 1.15em; padding: 0.3em 0; }
+.impact-v.quote { font-weight: 400; font-size: 0.85em; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.hint { margin: 0.5em 0; }
+.hint p { margin: 0 0 0.3em; }
+.hint-math { font-size: 1.4em; }
+.big-quote { font-size: 1.05em; }
+.level-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.level-btn { font-size: 0.9em; }
+.choice-sm { font-size: 1em; padding: 0.35em 0.8em; }
+.field { margin: 0.6em 0 0.3em; }

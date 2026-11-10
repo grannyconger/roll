@@ -78,6 +78,7 @@ function notify() {
 
 export async function getDoc(ref) { return docSnap(ref.path); }
 export async function getDocs(ref) { return colSnap(ref); }
+export async function getDocFromServer(ref) { return docSnap(ref.path); }
 export async function setDoc(ref, data, opts) {
   store.set(ref.path, opts && opts.merge ? { ...(store.get(ref.path) || {}), ...data } : { ...data });
   notify();

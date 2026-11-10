@@ -88,3 +88,23 @@ textarea { width: 100%; min-height: 6.5em; resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* The student's chosen color, set by applyAccent. Falls back to the dark text color. */
+:root { --accent: #475569; }
+.accent-text { color: var(--accent); }
+
+/* Reward moments. Bursts and falling emoji, removed after they finish. */
+.burst-layer { position: fixed; inset: 0; pointer-events: none; z-index: 90; overflow: hidden; }
+.burst-bit { position: absolute; font-size: 1.6em; animation: burst-out 1.2s cubic-bezier(.15, .7, .3, 1) forwards; }
+@keyframes burst-out {
+  from { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+  70% { opacity: 1; }
+  to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(var(--rot)) scale(1); opacity: 0; }
+}
+.rain-bit { position: absolute; top: -2em; font-size: 2em; animation: rain-fall var(--dur) linear var(--delay) forwards; }
+@keyframes rain-fall { to { transform: translateY(112vh) rotate(var(--rot)); } }
+
+/* Full screen gate on the student view */
+.fs-gate { position: fixed; inset: 0; z-index: 100; background: var(--dark); color: var(--darkText); display: flex; align-items: center; justify-content: center; text-align: center; }
+.fs-panel { max-width: 32em; padding: 2em; }
+.fs-gate .btn { background: var(--accentOnDark, var(--darkText)); color: var(--dark); }

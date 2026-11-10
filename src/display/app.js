@@ -1,22 +1,34 @@
 // Classroom display. Smartboard, no controls. Signed in with the teacher account on the teacher laptop.
+// Press F on this screen for full screen. That key press also turns on the drumroll.
 import { watchAuth, signInWithSchoolGoogle, isTeacherUser } from "../firebase.js";
 import { watchSession, watchCollection, measureClockOffset, sessionIdFromUrl } from "../session.js";
-import { GAMES, isCheckpointRound } from "../game.js";
-import { el, mount, countdown, bootPage, setDyslexiaFont, reducedMotion, nameNode } from "../shared/ui.js";
+import { avgMoney, GAMES, isCheckpointRound, isTeamRound, rankPlayers, teamStandings, signedMoney } from "../game.js";
+import { el, mount, countdown, bootPage, setDyslexiaFont, reducedMotion, nameNode, rain, burst } from "../shared/ui.js";
 import { agendaBlock, vocabBlock, guideBlock } from "../shared/panels.js";
 import {
-  OBJECTIVE, STANDARD, RULES, CHECKPOINT_PROMPT, GAME2_STEM, EXIT_PROMPT, CLOSURE_QUESTIONS, CER_STEPS, MIND_TRAPS
+  OBJECTIVE, RULES, RULE_EXAMPLES, CHECKPOINT_PROMPT, GAME2_STEM, EXIT_PROMPT, CLOSURE_QUESTIONS, CER_STEPS, MIND_TRAPS
 } from "../shared/content.js";
 import { COLORS } from "../shared/tokens.js";
+import { startDrumroll, drumHit, unlockSound, soundReady } from "./sound.js";
 
 const root = document.getElementById("app");
-const state = { session: null, players: {}, decisions: {}, rolls: {}, responses: {}, math: {}, teams: {}, probes: {}, peerReviews: {}, biasSurveys: {}, peerAssignments: {}, lastKey: null, localFont: false };
+const state = {
+  session: null, players: {}, decisions: {}, rolls: {}, responses: {}, math: {}, teams: {}, probes: {}, peerReviews: {},
+  biasSurveys: {}, peerAssignments: {}, quizAnswers: {}, lastKey: null, localFont: false
+};
+const seenInLobby = new Set();
+let closureCelebrated = false;
+let burstDone = null;
 
 bootPage();
+// browsers allow sound only after a key press or click on the page
+function wakeSound() { const was = soundReady(); unlockSound(); if (!was && soundReady()) render(); }
 document.addEventListener("keydown", e => {
+  wakeSound();
   if (e.key === "d" || e.key === "D") { state.localFont = !state.localFont; applyFont(); }
   if (e.key === "f" || e.key === "F") document.documentElement.requestFullscreen?.().catch(() => {});
 });
+document.addEventListener("pointerdown", wakeSound);
 
 watchAuth(async user => {
   if (!user || !isTeacherUser(user)) {
@@ -30,7 +42,7 @@ watchAuth(async user => {
   await measureClockOffset();
   const byId = l => Object.fromEntries(l.map(d => [d.id, d]));
   watchSession(sid, s => { state.session = s; applyFont(); render(); });
-  for (const name of ["players", "decisions", "rolls", "responses", "mathEntries", "teams", "probes", "peerReviews", "biasSurveys", "peerAssignments"]) {
+  for (const name of ["players", "decisions", "rolls", "responses", "mathEntries", "teams", "probes", "peerReviews", "biasSurveys", "peerAssignments", "quizAnswers"]) {
     watchCollection(sid, name, l => { state[name === "mathEntries" ? "math" : name] = byId(l); render(); });
   }
 });
@@ -45,7 +57,7 @@ function applyFont() {
 // font. After each mount, step the root size down from 48px until the screen fits,
 // stopping at a floor that stays readable from the back of the room.
 const BASE_PX = 48;
-const FLOOR_PX = 36;
+const FLOOR_PX = 30;
 function fitToScreen() {
   const html = document.documentElement;
   const screenNode = root.firstElementChild;
@@ -70,8 +82,14 @@ if (document.fonts) {
 
 function count(obj, fn) { return Object.values(obj).filter(fn).length; }
 function nPlayers() { return Object.keys(state.players).length; }
+function playersKey() { return Object.values(state.players).map(p => [p.uid, p.balance, p.preferredName, p.lastInitial, p.emoji, p.accentColor, p.teamId].join(":")).sort().join(); }
+function decidedKey() {
+  const s = state.session;
+  return Object.values(state.decisions).filter(d => d.game === s.game && d.round === s.round).map(d => d.uid).sort().join();
+}
 
 // ---------- render ----------
+const afterRender = [];
 function render() {
   const s = state.session;
   if (!s) return;
@@ -80,21 +98,28 @@ function render() {
   state.lastKey = k;
   mount(root, screen());
   fitToScreen();
+  afterRender.splice(0).forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
 }
 
 function screenKey() {
   const s = state.session;
-  const base = [s.phase, s.game, s.round, s.roundState, s.ruleStep, s.cerSubStep, s.spotlightResponseId, s.vocabModeVisible,
-    s.teamSeatingVisible, s.leaderboardVisible, s.biasSurveyPushId, s.displayDyslexiaFont, String(s.roundEndsAt && s.roundEndsAt.toMillis && s.roundEndsAt.toMillis())];
+  const base = [s.phase, s.game, s.round, s.roundState, s.ruleStep, s.cerSubStep, s.cerReveal, s.spotlightResponseId, s.vocabModeVisible,
+    s.teamSeatingVisible, s.leaderboardVisible, s.biasSurveyPushId, s.displayDyslexiaFont, soundReady(), String(s.roundEndsAt && s.roundEndsAt.toMillis && s.roundEndsAt.toMillis())];
   // the dice sequence must never be rebuilt by a counter changing
   if (s.roundState === "rolling" && inRounds()) return JSON.stringify(["rolling", s.game, s.round, !!state.rolls[`${s.game}_${s.round}`]]);
-  return JSON.stringify(base.concat([nPlayers(), counterText(), (s.leaderboard || []).map(x => x.uid + x.balance).join(), Object.keys(state.teams).length,
-    s.spotlightResponseId && state.responses[s.spotlightResponseId] ? 1 : 0, surveyCountsKey()]));
+  return JSON.stringify(base.concat([nPlayers(), counterText(), playersKey(), decidedKey(), Object.keys(state.teams).length,
+    JSON.stringify(Object.values(state.teams).map(t => t.members.map(m => m.uid))),
+    s.spotlightResponseId && state.responses[s.spotlightResponseId] ? 1 : 0, surveyCountsKey(), pollKey()]));
 }
 
 function inRounds() {
   const s = state.session;
   return ["learn-to-play", "game1", "game2"].includes(s.phase) && !!s.roundState;
+}
+
+function teamRoundNow() {
+  const s = state.session;
+  return s.phase === "game2" && s.game === 2 && isTeamRound(2, s.round) && Object.keys(state.teams).length > 0;
 }
 
 function screen() {
@@ -104,7 +129,7 @@ function screen() {
   if (s.vocabModeVisible) return light("Vocabulary", el("div", { class: "vocab-display" }, vocabBlock()));
   if (s.teamSeatingVisible && Object.keys(state.teams).length) return seatingScreen();
   if (s.biasSurveyPushId) return light("Check any trap you felt today", el("p", null, "Then write one sentence about the strongest one."), counterLine());
-  if (s.leaderboardVisible && (!inRounds() || ["settled", "decide"].includes(s.roundState))) return leaderboardScreen();
+  if (s.leaderboardVisible && (!inRounds() || ["settled", "decide"].includes(s.roundState))) return teamRoundNow() ? teamBoardScreen() : leaderboardScreen();
   return phaseScreen();
 }
 
@@ -132,6 +157,10 @@ function counterText() {
   if (s.phase === "game2-probe") return `${count(state.probes, () => true)} of ${n} answered`;
   if (s.phase === "exit-ticket") return `${count(state.responses, r => r.kind === "exit")} of ${n} submitted`;
   if (s.phase === "closure") return `${count(state.responses, r => r.kind === "closure")} of ${n} submitted`;
+  if (s.phase === "cer-lesson") {
+    const i = (s.cerSubStep || 1) - 1;
+    if (CER_STEPS[i] && CER_STEPS[i].kind === "poll") return `${pollCounts(i).total} of ${n} answered`;
+  }
   if (s.phase === "peer-scoring") {
     const expected = Object.values(state.peerAssignments).reduce((a, p) => a + (p.items || []).length, 0);
     return `${count(state.peerReviews, () => true)} of ${expected} scores submitted`;
@@ -149,45 +178,100 @@ function roundLabel() {
   return (s.game === 0 ? "Practice round " : `Game ${s.game}, round `) + `${s.round} of ${GAMES[s.game].rounds}`;
 }
 
+// A grid of who is here, or who has locked in. Still, never animated during a decide round.
+function emojiWall(list, { pop = false } = {}) {
+  return el("div", { class: "emoji-wall" + (list.length > 16 ? " dense" : "") }, list.map(p => {
+    const isNew = pop && !seenInLobby.has(p.uid);
+    if (pop) seenInLobby.add(p.uid);
+    return el("div", { class: "wall-item" + (isNew && !reducedMotion() ? " pop" : "") }, nameNode(p, true));
+  }));
+}
+
 function phaseScreen() {
   const s = state.session;
   const base = location.href.split("display")[0];
   switch (s.phase) {
-    case "lobby": return el("main", { class: "screen dark center on-dark" },
-      el("h1", null, "Sign in at " + base.replace(/^https?:\/\//, "").replace(/\/$/, "")),
-      el("p", { class: "big-line" }, "Class code"),
-      el("p", { class: "class-code mono" }, s.classCode),
-      el("p", null, `${nPlayers()} joined`));
+    case "lobby": {
+      const list = Object.values(state.players).sort((a, b) => (a.preferredName || "").localeCompare(b.preferredName || ""));
+      return el("main", { class: "screen dark center on-dark lobby" },
+        el("p", { class: "big-line" }, "Go to " + base.replace(/^https?:\/\//, "").replace(/\/$/, "")),
+        el("p", { class: "class-code mono" }, s.classCode),
+        el("p", { class: "lobby-count" }, `🎲 ${nPlayers()} joined`),
+        emojiWall(list, { pop: true }),
+        soundReady() || s.displaySound === false ? null : el("p", { class: "hint-line muted" }, "Press F on this screen for full screen and sound."));
+    }
     case "agenda": return el("main", { class: "screen light" },
       el("h1", null, "Agenda"), el("div", { class: "agenda-display" }, agendaBlock(s.phase)));
-    case "vocab-warmup": return dark("Vocab Warm Up", el("p", { class: "big-line mono" }, "wayground.com/join"));
+    case "vocab-warmup": return dark("Vocab Warm Up", el("p", { class: "hero-big", "aria-hidden": "true" }, "🐂  🐻"), el("p", { class: "big-line mono" }, "wayground.com/join"));
     case "learn-to-play":
       if (!s.roundState) {
         const step = Math.max(1, Math.min(RULES.length, s.ruleStep || 1));
-        return light("How the game works", el("ol", { class: "rules-display" }, RULES.slice(0, step).map((r, i) => el("li", { class: i === step - 1 ? "rule-new" : "" }, r))));
+        return light("How the game works", el("ol", { class: "rules-display" }, RULES.slice(0, step).map((r, i) => el("li", { class: i === step - 1 ? "rule-new" : "" }, r,
+          i === step - 1 ? el("span", { class: "rule-example" }, "Example: " + RULE_EXAMPLES[i]) : null))));
       }
       return roundScreen();
     case "game1":
-    case "game2": return s.roundState ? roundScreen() : dark(s.phase === "game1" ? "Game 1" : "Game 2");
-    case "game1-complete": return dark("Game 1 is over", el("p", { class: "big-line" }, "Check your final balance."));
-    case "feedback-1": return light("Read your feedback", timer());
-    case "cer-lesson": {
-      const i = Math.max(0, Math.min(CER_STEPS.length - 1, (s.cerSubStep || 1) - 1));
-      const step = CER_STEPS[i];
-      return light(step.title, step.lines.map(l => el("p", { class: "lesson-display" }, l)), i === CER_STEPS.length - 1 ? el("div", { class: "guide-display" }, guideBlock()) : null);
-    }
+    case "game2": return s.roundState ? roundScreen() : dark(s.phase === "game1" ? "Game 1" : "Game 2", el("p", { class: "hero-big", "aria-hidden": "true" }, "🎲"));
+    case "game1-complete": return dark("Game 1 is over", el("p", { class: "hero-big", "aria-hidden": "true" }, "🏁"), el("p", { class: "big-line" }, "Check your final balance."));
+    case "feedback-1": return light("Read your feedback", el("p", null, "Each response has a level and one thing to try next."), timer());
+    case "cer-lesson": return cerScreen();
     case "team-assignment": return Object.keys(state.teams).length ? seatingScreen() : dark("Teams are being built");
     case "team-huddle": return light("Defend your Game 1 approach", el("p", null, "About 45 seconds each. Listen to the people who played it differently."), timer());
     case "game2-probe": return light("Answer the probe on your screen", el("p", null, "Nobody at your table sees your answer."), counterLine());
-    case "game2-complete": return dark("Game 2 is over", el("p", { class: "big-line" }, "Check your final balance."));
-    case "peer-scoring": return light("Score two classmates", el("div", { class: "guide-display" }, guideBlock()), counterLine(), timer());
+    case "game2-complete": return dark("Game 2 is over", el("p", { class: "hero-big", "aria-hidden": "true" }, "🏁"), el("p", { class: "big-line" }, "Check your final balance."));
+    case "peer-scoring": return light("Score two classmates", el("div", { class: "guide-display" }, guideBlock()), el("div", { class: "row-split" }, counterLine(), timer()));
     case "debrief": return debriefScreen();
     case "exit-ticket": return light("Exit ticket", el("p", { class: "lesson-display" }, EXIT_PROMPT), el("div", { class: "row-split" }, counterLine(), timer()));
-    case "closure": return el("main", { class: "screen dark center on-dark" },
-      el("h1", { class: "closure-objective" }, OBJECTIVE),
-      CLOSURE_QUESTIONS.map(q => el("p", { class: "big-line" }, q)));
+    case "closure":
+      if (!closureCelebrated) { closureCelebrated = true; afterRender.push(() => rain(["🎉", "✨", "🎲", "📈"], { count: 50, ms: 3200 })); }
+      return el("main", { class: "screen dark center on-dark" },
+        el("h1", { class: "closure-objective" }, OBJECTIVE),
+        CLOSURE_QUESTIONS.map(q => el("p", { class: "big-line" }, q)));
   }
   return dark("Roll with the Market");
+}
+
+// ---------- CER lesson ----------
+function pollCounts(i) {
+  const counts = {};
+  let total = 0;
+  for (const a of Object.values(state.quizAnswers)) if (a.kind === "cer" && a.qid === "cer" + i) { counts[a.choice] = (counts[a.choice] || 0) + 1; total++; }
+  return { counts, total };
+}
+function pollKey() {
+  const s = state.session;
+  if (s.phase !== "cer-lesson") return "";
+  return JSON.stringify(pollCounts((s.cerSubStep || 1) - 1));
+}
+
+function cerScreen() {
+  const s = state.session;
+  const i = Math.max(0, Math.min(CER_STEPS.length - 1, (s.cerSubStep || 1) - 1));
+  const step = CER_STEPS[i];
+  switch (step.kind) {
+    case "example": return light(step.title,
+      el("p", { class: "scenario-display" }, step.scenario),
+      el("dl", { class: "cer-display" }, step.parts.map(([k, v]) => [el("dt", null, k), el("dd", null, v)])));
+    case "talk": return el("main", { class: "screen dark center on-dark" },
+      el("p", { class: "hero-big", "aria-hidden": "true" }, "🗣️"),
+      el("h1", null, step.title),
+      el("p", { class: "talk-prompt" }, step.prompt),
+      timer());
+    case "poll": {
+      const { counts, total } = pollCounts(i);
+      const revealed = !!s.cerReveal;
+      if (revealed && burstDone !== i) { burstDone = i; afterRender.push(() => burst(document.querySelector(".poll-answer"), ["✨", "⭐"], { count: 18, spread: 260 })); }
+      return light(step.title,
+        el("p", { class: "scenario-display" }, step.scenario),
+        el("p", { class: "poll-ask" }, step.ask),
+        el("ol", { class: "poll-options" }, step.options.map((o, k) => el("li", { class: revealed && k === step.answer ? "poll-answer" : "" },
+          el("span", null, revealed && k === step.answer ? "✔ " : "", o),
+          revealed ? el("span", { class: "mono poll-count" }, String(counts[k] || 0)) : null))),
+        revealed ? el("p", { class: "poll-why" }, step.why) : el("p", { class: "counter" }, `Answer on your screen. ${total} of ${nPlayers()} answered.`));
+    }
+    case "guide": return light(step.title, el("div", { class: "guide-display" }, guideBlock()));
+    default: return light(step.title, step.lines.map(l => el("p", { class: "lesson-display" }, l)));
+  }
 }
 
 function roundScreen() {
@@ -197,6 +281,7 @@ function roundScreen() {
   switch (s.roundState) {
     case "decide": {
       const checkpoint = g > 0 && isCheckpointRound(g, r);
+      const decided = Object.values(state.decisions).filter(d => d.game === g && d.round === r).map(d => state.players[d.uid]).filter(Boolean);
       return el("main", { class: "screen light" },
         el("p", { class: "objective-strip" }, OBJECTIVE),
         el("p", { class: "round-display" }, roundLabel()),
@@ -204,9 +289,10 @@ function roundScreen() {
         g === 2 && checkpoint ? el("p", { class: "stem-display" }, GAME2_STEM) : null,
         s.isDoubleRound ? el("p", { class: "callout-display" }, "Double round. IN moves twice the amount. OUT still earns $1.") : null,
         s.isTeamRound ? el("p", { class: "callout-display" }, "Your table decides together.") : null,
-        el("div", { class: "row-split" }, counterLine(), timer()));
+        el("div", { class: "row-split" }, counterLine(), timer()),
+        decided.length ? el("div", { class: "locked-wall" }, el("p", { class: "wall-label" }, "Locked in"), emojiWall(decided)) : null);
     }
-    case "locked": return dark("Decisions locked", el("p", { class: "big-line" }, "Eyes on the board."));
+    case "locked": return dark("Decisions locked", el("p", { class: "hero-big", "aria-hidden": "true" }, "🔒"), el("p", { class: "big-line" }, "Eyes on the board."));
     case "revealed":
     case "compute": return el("main", { class: "screen dark center on-dark" },
       roll ? resultBlock(roll) : null,
@@ -214,7 +300,7 @@ function roundScreen() {
       counterLine());
     case "settled": return el("main", { class: "screen dark center on-dark" },
       el("h1", null, `${roundLabel()} settled`),
-      roll ? marketObject(g, r, false) : null);
+      teamRoundNow() ? teamBoardBlock(true) : (roll ? marketObject(g, r, false) : null));
   }
   return dark(roundLabel());
 }
@@ -222,13 +308,15 @@ function roundScreen() {
 function resultBlock(roll) {
   const up = roll.direction === "up";
   return el("div", { class: "result-block" },
-    el("p", { class: "direction-big " + (up ? "dir-up" : "dir-down") }, (up ? "▲ Up, bull" : "▼ Down, bear")),
+    el("p", { class: "direction-big " + (up ? "dir-up" : "dir-down") }, (up ? "🐂 ▲ Up, bull" : "🐻 ▼ Down, bear")),
     roll.doubled
       ? el("p", { class: "amount-big mono" }, `$${roll.amount}`, el("span", { class: "doubled" }, `  doubled $${roll.effectiveAmount}`))
       : el("p", { class: "amount-big mono" }, `$${roll.amount}`));
 }
 
 // ---------- the reveal sequence ----------
+// About 15 seconds. A title card, the direction die with a drumroll, a held
+// pause, then the three amount dice landing one by one, then the market moves.
 function dieFace(value) {
   const pips = { 1: [5], 2: [1, 9], 3: [1, 5, 9], 4: [1, 3, 7, 9], 5: [1, 3, 5, 7, 9], 6: [1, 3, 4, 6, 7, 9] }[value];
   const die = el("div", { class: "die", "aria-hidden": "true" });
@@ -240,9 +328,20 @@ function tumble(slot, finalValue, ms, onDone) {
   const still = reducedMotion();
   if (still) { slot.replaceChildren(dieFace(finalValue)); onDone && onDone(); return; }
   slot.classList.add("tumbling");
-  const iv = setInterval(() => slot.replaceChildren(dieFace(1 + Math.floor(Math.random() * 6))), 85);
+  let wait = 70;
+  let stopped = false;
+  // the faces flick fast, then slow down before the die lands
+  const t0 = performance.now();
+  const flick = () => {
+    if (stopped) return;
+    slot.replaceChildren(dieFace(1 + Math.floor(Math.random() * 6)));
+    const k = (performance.now() - t0) / ms;
+    wait = 70 + Math.max(0, k - 0.6) * 500;
+    setTimeout(flick, wait);
+  };
+  flick();
   setTimeout(() => {
-    clearInterval(iv);
+    stopped = true;
     slot.classList.remove("tumbling");
     slot.classList.add("landed");
     slot.replaceChildren(dieFace(finalValue));
@@ -250,41 +349,72 @@ function tumble(slot, finalValue, ms, onDone) {
   }, ms);
 }
 
+export const REVEAL = { intro: 1100, dirRoll: 3000, pause: 2600, diceRoll: 2900, stagger: 450 };
+
 function rollScreen() {
   const s = state.session;
   const roll = state.rolls[`${s.game}_${s.round}`];
   const main = el("main", { class: "screen dark center on-dark roll" });
   if (!roll) { main.appendChild(el("h1", null, "Rolling")); return main; }
   const still = reducedMotion();
-  const stage = el("div", { class: "stage" });
-  const dirSlot = el("div", { class: "die-slot" });
-  const dirWord = el("p", { class: "direction-big hidden" });
-  const amountRow = el("div", { class: "dice-row hidden" }, [0, 1, 2].map(() => el("div", { class: "die-slot" })));
-  const amountWord = el("p", { class: "amount-big mono hidden" });
-  const marketSlot = el("div", { class: "market-slot hidden" });
-  stage.append(el("p", { class: "round-display" }, roundLabel()), dirSlot, dirWord, amountRow, amountWord, marketSlot);
-  main.appendChild(stage);
   const up = roll.direction === "up";
-  const T = still ? { d: 0, w: 600, a: 1600, m: 3200 } : { d: 1500, w: 1700, a: 3300, m: 5600 };
-  tumble(dirSlot, roll.directionDie, T.d);
+
+  const title = el("p", { class: "roll-title" + (still ? "" : " title-in") }, roundLabel() + (roll.doubled ? ". Double round." : ""));
+  const dirAsk = el("p", { class: "roll-ask" }, "Bull or bear?");
+  const dirSlot = el("div", { class: "die-slot die-hero" }, dieFace(1));
+  const dirWord = el("p", { class: "direction-big hidden" });
+  const dirCol = el("div", { class: "roll-col" }, dirAsk, dirSlot, dirWord);
+
+  const amtAsk = el("p", { class: "roll-ask hidden" }, "How far?");
+  const slots = [0, 1, 2].map(() => el("div", { class: "die-slot" }, dieFace(1)));
+  const amountRow = el("div", { class: "dice-row hidden" }, slots);
+  const amountWord = el("p", { class: "amount-big mono hidden" }, "$0");
+  const amtCol = el("div", { class: "roll-col" }, amtAsk, amountRow, amountWord);
+
+  const marketSlot = el("div", { class: "market-slot hidden" });
+  main.append(el("div", { class: "stage" }, title, el("div", { class: "roll-cols" }, dirCol, amtCol), marketSlot));
+
+  const R = still ? { intro: 0, dirRoll: 0, pause: 600, diceRoll: 0, stagger: 0 } : REVEAL;
+  const tDir = R.intro;
+  const tWord = tDir + R.dirRoll + 150;
+  const tAmt = tWord + R.pause;
+
+  // 1. the direction die, with the drumroll
   setTimeout(() => {
-    dirWord.textContent = up ? "▲ Up, bull" : "▼ Down, bear";
+    dirSlot.classList.add("spotlight");
+    const sound = s.displaySound !== false;
+    if (sound) startDrumroll(R.dirRoll);
+    tumble(dirSlot, roll.directionDie, R.dirRoll, () => { if (sound) drumHit(); });
+  }, tDir);
+  setTimeout(() => {
+    dirSlot.classList.remove("spotlight");
+    dirWord.textContent = up ? "🐂 ▲ Up, bull" : "🐻 ▼ Down, bear";
     dirWord.classList.add(up ? "dir-up" : "dir-down");
     dirWord.classList.remove("hidden");
-  }, T.w);
+    if (!still) dirWord.classList.add("slam");
+    rain(up ? ["🐂", "📈", "💵"] : ["🐻", "📉", "🍯"], { count: 34, ms: 2400 });
+  }, tWord);
+
+  // 2. a held pause, then the three amount dice, landing one at a time
   setTimeout(() => {
+    amtAsk.classList.remove("hidden");
     amountRow.classList.remove("hidden");
-    [...amountRow.children].forEach((slot, i) => tumble(slot, roll.amountDice[i], still ? 0 : 1400 + i * 250));
-  }, T.a - (still ? 0 : 1600));
-  setTimeout(() => {
-    amountWord.replaceChildren(document.createTextNode(`$${roll.amount}`));
-    if (roll.doubled) amountWord.appendChild(el("span", { class: "doubled" }, `  doubled $${roll.effectiveAmount}`));
     amountWord.classList.remove("hidden");
-  }, T.a + (still ? 0 : 400));
+    let total = 0;
+    slots.forEach((slot, i) => tumble(slot, roll.amountDice[i], R.diceRoll + i * R.stagger, () => {
+      total += roll.amountDice[i];
+      amountWord.replaceChildren(document.createTextNode(`$${total}`));
+      if (!still) { amountWord.classList.remove("bump"); void amountWord.offsetWidth; amountWord.classList.add("bump"); }
+      if (i === 2 && roll.doubled) amountWord.appendChild(el("span", { class: "doubled" }, `  doubled $${roll.effectiveAmount}`));
+    }));
+  }, tAmt);
+
+  // 3. the market moves
+  const tMarket = tAmt + R.diceRoll + 2 * R.stagger + (still ? 0 : 900);
   setTimeout(() => {
     marketSlot.replaceChildren(marketObject(s.game, s.round, !still));
     marketSlot.classList.remove("hidden");
-  }, T.m);
+  }, tMarket);
   return main;
 }
 
@@ -296,7 +426,7 @@ function marketObject(game, round, animate) {
     if (!roll) continue;
     pts.push(pts[pts.length - 1] + (roll.direction === "up" ? roll.amount : -roll.amount));
   }
-  const w = 1200, h = 300, pad = 24;
+  const w = 1200, h = 260, pad = 24;
   const min = Math.min(...pts) - 10, max = Math.max(...pts) + 10;
   const total = Math.max(GAMES[game].rounds, pts.length - 1);
   const x = i => pad + i * (w - pad * 2) / total;
@@ -315,8 +445,7 @@ function marketObject(game, round, animate) {
   line.setAttribute("stroke-linejoin", "round");
   line.setAttribute("stroke-linecap", "round");
   if (animate) {
-    const len = 4000;
-    line.setAttribute("stroke-dasharray", String(len));
+    line.setAttribute("stroke-dasharray", "4000");
     line.setAttribute("class", "market-draw");
   }
   svg.appendChild(line);
@@ -349,11 +478,37 @@ function seatingScreen() {
     timer());
 }
 
+// Every student, ranked by live balance. Columns are added so nobody is cut off.
+const MEDALS = { 1: "🥇", 2: "🥈", 3: "🥉" };
 function leaderboardScreen() {
-  const list = (state.session.leaderboard || []).slice(0, 10);
+  const list = rankPlayers(Object.values(state.players));
+  const cols = list.length > 18 ? 3 : list.length > 8 ? 2 : 1;
   return el("main", { class: "screen light" },
-    el("h1", null, "Portfolio leaderboard"),
-    el("ol", { class: "board" }, list.map(x => el("li", null, nameNode(x), el("span", { class: "money" }, "$" + x.balance)))));
+    el("h1", { class: "board-title" }, "Portfolio leaderboard"),
+    list.length ? el("ol", { class: `board cols-${cols}`, style: { gridTemplateRows: `repeat(${Math.ceil(list.length / cols)}, auto)`, gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoFlow: "column" } }, list.map(x => el("li", { class: "board-row" + (x.rank <= 3 ? " top" : "") },
+      el("span", { class: "board-rank mono" }, MEDALS[x.rank] || String(x.rank)),
+      el("span", { class: "board-name" }, nameNode(x)),
+      el("span", { class: "money board-bal" }, "$" + x.balance),
+      x.change === null ? el("span", null, "") : el("span", { class: "board-change mono " + (x.change >= 0 ? "dir-up" : "dir-down") }, (x.change >= 0 ? "▲ " : "▼ ") + signedMoney(x.change)))))
+      : el("p", null, "Nobody has joined yet."));
+}
+
+function teamBoardBlock(onDark) {
+  const teams = Object.values(state.teams);
+  const standings = teamStandings(teams, uid => (state.players[uid] || {}).balance);
+  return el("div", { class: "team-board" + (onDark ? " on-dark" : "") },
+    el("p", { class: "team-board-title" }, "Table standings, average portfolio"),
+    el("ol", { class: "team-rows" }, standings.map((t, i) => {
+      const team = state.teams[t.teamId];
+      return el("li", { class: "team-row" + (i === 0 ? " top" : "") },
+        el("span", { class: "board-rank mono" }, MEDALS[i + 1] || String(i + 1)),
+        el("span", { class: "team-row-name" }, t.table, el("span", { class: "team-emojis", "aria-hidden": "true" }, " " + (team ? team.members.map(m => (state.players[m.uid] || m).emoji || "").join(" ") : ""))),
+        el("span", { class: "money board-bal" }, "$" + avgMoney(t.average)));
+    })));
+}
+
+function teamBoardScreen() {
+  return el("main", { class: "screen light" }, el("h1", { class: "board-title" }, "Team leaderboard"), teamBoardBlock(false));
 }
 
 function surveyCounts() {
@@ -372,5 +527,5 @@ function debriefScreen() {
     el("h1", null, "Seven mind traps"),
     el("dl", { class: "traps-display" }, MIND_TRAPS.map(t => [
       el("dt", null, t.name, any ? el("span", { class: "trap-count mono" }, `  ${counts[t.id] || 0} felt it`) : null),
-      el("dd", null, t.def)])));
+      el("dd", null, t.def + ". ", el("span", { class: "trap-life" }, t.life))])));
 }

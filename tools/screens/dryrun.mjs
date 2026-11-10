@@ -224,15 +224,13 @@ const active = () => STUDENTS.filter(s => s.page);
 async function joinStudent(s, viaClassCode) {
   s.ctx = await browser.newContext({ viewport: { width: 1366, height: 768 }, reducedMotion: "reduce" });
   s.page = await openPage("student " + s.name, "index.html", s.ctx);
-  await waitText(s.page, /Sign in with Google/, s.name);
-  if (viaClassCode) await s.page.getByRole("button", { name: "Sign in with the class code instead" }).click();
-  else await signIn(s.page, { sub: s.sub, email: s.email, name: s.name + " Student" });
   await waitText(s.page, /Enter the class code/, s.name);
   const code = (await session()).classCode;
   await s.page.locator("#code").fill(code);
   await s.page.getByRole("button", { name: "Join", exact: true }).click();
   await waitText(s.page, /Join the class/, s.name);
   await s.page.locator("#pname").fill(s.name);
+  await s.page.locator("#plast").fill("Dryrun");
   await s.page.locator(".emoji").nth(s.i).click();
   await s.page.locator(".swatch").nth(s.i % 8).click();
   await s.page.getByRole("button", { name: "Join", exact: true }).click();
@@ -270,6 +268,18 @@ async function studentDecides(s, game, round) {
   }
   await p.getByRole("button", { name: "Lock in" }).click();
   await waitText(p, /Locked in\. Wait for the roll/, `${s.name} lock in G${game} R${round}`);
+  // after a written response, answer the Sparkle Points challenge
+  if (game > 0 && await p.locator(".quiz .option-btn").count()) {
+    for (let q = 0; q < 3; q++) {
+      const opt = p.locator(".quiz .option-btn").first();
+      if (!await opt.count()) break;
+      await opt.click();
+      await p.locator(".quiz-result").waitFor({ timeout: 4000 }).catch(() => problem(`${s.name} quiz answer showed no result`));
+      await p.locator(".quiz .btn").click();
+    }
+    if (!/That is all three for now/.test(await text(p))) problem(`${s.name} quiz did not finish after three answers in G${game} R${round}`);
+    else s.quizzed = (s.quizzed || 0) + 3;
+  }
 }
 
 function valueOf(choice, roll) { return choice !== "IN" ? 1 : (roll.direction === "up" ? roll.effectiveAmount : -roll.effectiveAmount); }
@@ -389,7 +399,7 @@ async function lesson() {
   await waitText(teacher, /2B hub/, "teacher hub");
 
   display = await openPage("display", `display.html?s=${SID}`, tctx);
-  await waitText(display, /Class code/, "display lobby");
+  await waitText(display, /joined/, "display lobby");
 
   const octx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   observer = await openPage("observer", `observer.html?s=${SID}`, octx);
@@ -430,7 +440,6 @@ async function lesson() {
   for (let r = 1; r <= 6; r++) {
     if (r === 3) {
       // a late joiner arrives through the class code
-      await teacherToggle("Class code sign-in");
       await joinStudent(STUDENTS.find(s => s.late), true);
       let late = null;
       for (let i = 0; i < 25 && !late; i++) { late = await getDoc(`sessions/${SID}/players/${STUDENTS[6].uid}`); if (!late) await new Promise(r => setTimeout(r, 200)); }
@@ -477,7 +486,23 @@ async function lesson() {
   await shot(teacher, "teacher-feedback");
 
   await primary(/^Start the CER lesson/);
-  for (let i = 0; i < 5; i++) await primary(/^Next:/);
+  let polls = 0;
+  for (let i = 0; i < 40 && /^Next:|^Reveal/.test(await primaryLabel()); i++) {
+    if (/Everyone answers/.test(await text(STUDENTS[0].page)) && /^Reveal/.test(await primaryLabel())) {
+      polls++;
+      await Promise.all(active().map(async s => {
+        const b = s.page.locator(".option-btn").nth(s.i % 2);
+        await b.click({ timeout: 5000 }).catch(() => problem(`${s.name} could not answer CER poll ${polls}`));
+        await waitText(s.page, /Answer locked/, `${s.name} poll answer locked`);
+      }));
+      await waitText(display, new RegExp(`${active().length} of ${active().length} answered`), "display counts every poll answer");
+      await primary(/^Reveal the answer/);
+      await waitText(STUDENTS[0].page, /Correct\. \+3|Not this time/, "student sees the poll result");
+    } else await primary(/^Next:|^Reveal/);
+  }
+  check(polls === 4, `CER lesson ran ${polls} polls, expected 4`);
+  const cerAnswers = (await list(`sessions/${SID}/quizAnswers`)).filter(a => a.kind === "cer");
+  check(cerAnswers.length === polls * active().length, `${cerAnswers.length} CER poll answers stored`);
   await primary(/^Build strategy teams/);
   const teams = await list(`sessions/${SID}/teams`);
   const sizes = teams.map(t => t.members.length).sort();
@@ -489,10 +514,29 @@ async function lesson() {
   await waitText(display, /Find your table/, "display seating chart");
   await shot(display, "display-seating");
 
-  await primary(/^Start the 3 minute huddle/);
+  // the teacher drags one student to the other table
+  const tbefore = await list(`sessions/${SID}/teams`);
+  const big = tbefore.find(t => t.members.length === 4), small = tbefore.find(t => t.members.length === 3);
+  const mover = big.members[0];
+  const src = teacher.locator(".team-box", { hasText: big.table }).locator(".drag-name").first();
+  await src.dragTo(teacher.locator(`.team-box[data-team="${small.teamId}"]`));
+  let moved = null;
+  for (let i = 0; i < 25; i++) { moved = await getDoc(`sessions/${SID}/players/${mover.uid}`); if (moved.teamId === small.teamId) break; await new Promise(r => setTimeout(r, 200)); }
+  check(moved.teamId === small.teamId && moved.seat === 4, `drag and drop moved a student to ${small.table}, seat ${moved.seat}`);
+  const tafter = await list(`sessions/${SID}/teams`);
+  check(tafter.find(t => t.teamId === big.teamId).members.length === 3, "the table they left has 3 members");
+  // and back again
+  await teacher.locator(".team-box", { hasText: small.table }).locator(".drag-name").last().dragTo(teacher.locator(`.team-box[data-team="${big.teamId}"]`));
+  await new Promise(r => setTimeout(r, 1200));
+  await primary(/^Start the huddle/);
   await primary(/^Start Game 2/);
   for (let r = 1; r <= 8; r++) {
     await playRound(2, r);
+    if (r <= 4) {
+      const s2 = await session();
+      check((s2.teamBoard || []).length === 2, `team standings written after G2 R${r}`);
+      check(await waitText(display, /Table standings, average portfolio/, `display team board G2 R${r}`), `display shows team standings after G2 R${r}`);
+    }
     if (r === 4) {
       await primary(/^Open the probe/);
       await Promise.all(active().map(async s => {
@@ -571,6 +615,15 @@ async function lesson() {
     await waitText(s.page, /Answers submitted/, `${s.name} closure submitted`);
   }));
   await shot(observer, "observer-end");
+  const qa = await list(`sessions/${SID}/quizAnswers`);
+  check(qa.filter(a => a.kind === "quiz").length > 20, `${qa.filter(a => a.kind === "quiz").length} Sparkle Points quiz answers stored`);
+  // the leaderboard shows every student
+  await teacherToggle("Leaderboard");
+  await new Promise(r => setTimeout(r, 800));
+  const boardRows = await display.locator(".board-row").count();
+  check(boardRows === 7, `display leaderboard shows all ${boardRows} of 7 students`);
+  await shot(display, "display-leaderboard");
+  await teacherToggle("Leaderboard");
   const obsText = await text(observer);
   check(/Game 1 to Game 2/.test(obsText), "observer shows Game 1 to Game 2 growth");
 

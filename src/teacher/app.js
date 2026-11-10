@@ -3,8 +3,8 @@ import {
   db, collection, query, where, getDocs, watchAuth, signInWithSchoolGoogle, signOutNow, isTeacherUser
 } from "../firebase.js";
 import { watchSession, watchCollection, measureClockOffset, serverNow, millisOf, PHASES, PHASE_LABELS, formatClock } from "../session.js";
-import { GAMES, isCheckpointRound } from "../game.js";
-import { el, mount, countdown, bootPage, nameNode } from "../shared/ui.js";
+import { avgMoney, GAMES, isCheckpointRound, isTeamRound, teamStandings } from "../game.js";
+import { el, mount, countdown, bootPage, nameNode, displayName } from "../shared/ui.js";
 import { CER_STEPS, RULES } from "../shared/content.js";
 import { assessorUrl, setAssessorUrl } from "../shared/config.js";
 import { makeEngine, createSectionSession } from "./engine.js";
@@ -14,7 +14,7 @@ const root = document.getElementById("app");
 const state = {
   user: null, sessionId: null, session: null,
   players: {}, roster: {}, decisions: {}, rolls: {}, responses: {}, feedback: {}, math: {},
-  teams: {}, probes: {}, peerReviews: {}, biasSurveys: {},
+  teams: {}, probes: {}, peerReviews: {}, biasSurveys: {}, quizAnswers: {}, confirmRemove: null,
   busy: false, picked: null, healthCheck: null, unsubs: []
 };
 let engine = null;
@@ -61,7 +61,7 @@ function startSession(sid) {
   engine = makeEngine({ sessionId: sid, get: () => state });
   const byId = l => Object.fromEntries(l.map(d => [d.id, d]));
   state.unsubs.push(watchSession(sid, s => { state.session = s; setAssessorUrl(s && s.assessorUrl); schedule(); }));
-  for (const name of ["players", "roster", "decisions", "rolls", "responses", "feedback", "teams", "probes", "peerReviews", "biasSurveys"]) {
+  for (const name of ["players", "roster", "decisions", "rolls", "responses", "feedback", "teams", "probes", "peerReviews", "biasSurveys", "quizAnswers"]) {
     state.unsubs.push(watchCollection(sid, name, l => { state[name] = byId(l); schedule(); }));
   }
   state.unsubs.push(watchCollection(sid, "mathEntries", l => { state.math = byId(l); schedule(); }));
@@ -89,7 +89,7 @@ async function autoAdvance() {
   if (s.roundState === "rolling") {
     const roll = state.rolls[`${s.game}_${s.round}`];
     const at = roll && millisOf(roll.rolledAt);
-    if (at && serverNow() - at > 12000) engine.revealRoll();
+    if (at && serverNow() - at > 19000) engine.revealRoll();
   }
 }
 
@@ -154,10 +154,15 @@ function primaryAction() {
     case "feedback-1": return { label: "Start the CER lesson", run: () => E.goToPhase("cer-lesson") };
     case "cer-lesson": {
       const step = s.cerSubStep || 1;
-      if (step < CER_STEPS.length) return { label: `Next: ${CER_STEPS[step].title}`, run: () => E.setSession({ cerSubStep: step + 1 }) };
+      const def = CER_STEPS[step - 1];
+      if (def && def.kind === "poll" && !s.cerReveal) {
+        const n = Object.values(state.quizAnswers).filter(a => a.kind === "cer" && a.qid === "cer" + (step - 1)).length;
+        return { label: `Reveal the answer (${n} of ${nPlayers} answered)`, run: E.revealCerPoll };
+      }
+      if (step < CER_STEPS.length) return { label: `Next: ${CER_STEPS[step].title}`, run: () => E.goToCerStep(step + 1) };
       return { label: "Build strategy teams", run: E.buildStrategyTeams };
     }
-    case "team-assignment": return { label: "Start the 3 minute huddle", run: () => E.goToPhase("team-huddle") };
+    case "team-assignment": return { label: "Start the huddle", run: () => E.goToPhase("team-huddle") };
     case "team-huddle": return { label: "Start Game 2", run: E.startGame2 };
     case "game2": return { label: "Start Game 2", run: E.startGame2 };
     case "game2-probe": return { label: "Start round 5", run: () => E.startRound(2, 5, "game2") };
@@ -173,7 +178,10 @@ function primaryAction() {
 }
 
 // ---------- render ----------
+let dragging = false;
 function render() {
+  // never rebuild during a drag, or the drop target disappears
+  if (dragging) { setTimeout(schedule, 400); return; }
   // never rebuild under an open dropdown, or the teacher loses the selection
   const active = document.activeElement;
   if (active && active.tagName === "SELECT" && root.contains(active)) { setTimeout(schedule, 800); return; }
@@ -192,7 +200,7 @@ function render() {
       lastError ? el("p", { class: "notice" }, lastError, " ", el("button", { class: "btn btn-quiet", onclick: () => { lastError = ""; render(); } }, "Dismiss")) : null,
       phasePanel(), togglesPanel(), randomizerPanel(), healthPanel(), exportPanel()),
     el("section", { class: "col col-2" }, responsesPanel()),
-    el("section", { class: "col col-3" }, distributionPanel(), spotlightPanel(), flagsPanel(), historyPanel(), studentsPanel())));
+    el("section", { class: "col col-3" }, teamsPanel(), distributionPanel(), spotlightPanel(), flagsPanel(), historyPanel(), studentsPanel())));
 }
 
 function linkRow() {
@@ -213,7 +221,11 @@ function nowLine() {
     if (s.isTeamRound) t += ", team round";
     if (s.game > 0 && isCheckpointRound(s.game, s.round)) t += ", checkpoint";
   }
-  if (s.phase === "cer-lesson") t += `, step ${s.cerSubStep || 1} of ${CER_STEPS.length}`;
+  if (s.phase === "cer-lesson") {
+    const def = CER_STEPS[(s.cerSubStep || 1) - 1];
+    t += `, step ${s.cerSubStep || 1} of ${CER_STEPS.length}`;
+    if (def) t += def.kind === "talk" ? ", turn and talk" : def.kind === "poll" ? (s.cerReveal ? ", poll revealed" : ", poll open") : "";
+  }
   return t;
 }
 
@@ -257,6 +269,7 @@ function togglesPanel() {
       onclick: () => run(s.biasSurveyPushId ? engine.closeBiasSurvey : engine.pushBiasSurvey) },
       s.biasSurveyPushId ? `Bias survey: open (${s.biasSurveyPushId})` : "Bias survey: push"),
     toggle("Display dyslexia font", s.displayDyslexiaFont, { displayDyslexiaFont: !s.displayDyslexiaFont }),
+    toggle("Display drumroll", s.displaySound !== false, { displaySound: s.displaySound === false }),
     toggle("Class code sign-in", s.allowAnonymous, { allowAnonymous: !s.allowAnonymous }),
     toggle("Joining locked", s.joinLocked, { joinLocked: !s.joinLocked })));
 }
@@ -412,12 +425,75 @@ function historyPanel() {
     el("tbody", null, rows)) : el("p", { class: "small muted" }, "No rounds yet."));
 }
 
+// Teams, editable by drag and drop. Drag a name onto another table.
+function teamsPanel() {
+  const teams = Object.values(state.teams).sort((a, b) => a.teamId.localeCompare(b.teamId, undefined, { numeric: true }));
+  if (!teams.length) return null;
+  const s = state.session;
+  const balances = uid => (state.players[uid] || {}).balance;
+  const standings = s.game === 2 ? teamStandings(teams, balances) : [];
+  const avgOf = id => { const t = standings.find(x => x.teamId === id); return t ? ` avg $${avgMoney(t.average)}` : ""; };
+  const grid = el("div", { class: "team-grid" }, teams.map(t => {
+    const box = el("div", { class: "team-box", "data-team": t.teamId },
+      el("p", { class: "team-name" }, `${t.table} (${t.members.length})`, el("span", { class: "small muted mono" }, avgOf(t.teamId))),
+      el("ul", { class: "team-members" }, t.members.map(m => {
+        const p = state.players[m.uid] || m;
+        const li = el("li", { class: "drag-name", draggable: "true", title: "Drag to another table" }, nameNode(p),
+          p.archetype ? el("span", { class: "small muted" }, " " + p.archetype) : null);
+        li.addEventListener("dragstart", e => { dragging = true; e.dataTransfer.setData("text/plain", m.uid); e.dataTransfer.effectAllowed = "move"; li.classList.add("is-dragging"); });
+        li.addEventListener("dragend", () => { dragging = false; li.classList.remove("is-dragging"); schedule(); });
+        return li;
+      })));
+    box.addEventListener("dragover", e => { e.preventDefault(); box.classList.add("drop-here"); });
+    box.addEventListener("dragleave", () => box.classList.remove("drop-here"));
+    box.addEventListener("drop", e => {
+      e.preventDefault();
+      box.classList.remove("drop-here");
+      dragging = false;
+      const uid = e.dataTransfer.getData("text/plain");
+      if (uid) run(() => engine.moveToTeam(uid, t.teamId));
+    });
+    return box;
+  }));
+  const unplaced = Object.values(state.players).filter(p => !teams.some(t => t.members.some(m => m.uid === p.uid)));
+  return panel("Teams",
+    el("p", { class: "small muted" }, "Drag a name onto another table. Students see the change at once."),
+    grid,
+    unplaced.length ? el("div", { class: "unplaced" }, el("p", { class: "small" }, el("strong", null, "Not on a table: ")),
+      el("ul", { class: "team-members" }, unplaced.map(p => {
+        const li = el("li", { class: "drag-name", draggable: "true" }, nameNode(p));
+        li.addEventListener("dragstart", e => { dragging = true; e.dataTransfer.setData("text/plain", p.uid); });
+        li.addEventListener("dragend", () => { dragging = false; schedule(); });
+        return li;
+      }))) : null,
+    el("button", { class: "btn btn-small", onclick: () => run(engine.addTable) }, "Add a table"));
+}
+
+function sparkleOf(uid) {
+  return Object.values(state.quizAnswers).filter(a => a.uid === uid).reduce((t, a) => t + (a.points || 0), 0);
+}
+
 function studentsPanel() {
   const list = Object.values(state.players).sort((a, b) => (a.preferredName || "").localeCompare(b.preferredName || ""));
-  return panel(`Students (${list.length})`, el("div", { class: "students" }, list.map(p => {
-    const acct = state.roster[p.uid];
-    return el("div", { class: "student-row" },
-      nameNode(p), el("span", { class: "small muted" }, " " + (acct ? (acct.accountName || acct.email || "") : "")),
-      el("span", { class: "mono small" }, " $" + p.balance), p.archetype ? el("span", { class: "small" }, " " + p.archetype) : null);
-  })));
+  const fullName = p => { const acct = state.roster[p.uid]; return acct ? (acct.accountName || acct.email || "") : ""; };
+  const counts = {};
+  for (const p of list) { const k = (fullName(p) || displayName(p)).toLowerCase(); counts[k] = (counts[k] || 0) + 1; }
+  const dupes = list.filter(p => counts[(fullName(p) || displayName(p)).toLowerCase()] > 1).length;
+  return panel(`Students (${list.length})`,
+    dupes ? el("p", { class: "small notice" }, `${dupes} records share a name. Remove the copy with no decisions.`) : null,
+    el("div", { class: "students" }, list.map(p => {
+      const dup = counts[(fullName(p) || displayName(p)).toLowerCase()] > 1;
+      const nDecisions = Object.values(state.decisions).filter(d => d.uid === p.uid && !d.defaulted).length;
+      const confirming = state.confirmRemove === p.uid;
+      return el("div", { class: "student-row" + (dup ? " is-dup" : "") },
+        nameNode(p), el("span", { class: "small muted" }, " " + fullName(p)),
+        el("span", { class: "mono small" }, " $" + p.balance), el("span", { class: "small" }, ` ✨${sparkleOf(p.uid)}`),
+        el("span", { class: "small muted" }, ` ${nDecisions} picks`),
+        p.archetype ? el("span", { class: "small" }, " " + p.archetype) : null,
+        dup ? el("span", { class: "small notice" }, " duplicate name") : null,
+        confirming
+          ? el("span", null, " ", el("button", { class: "btn btn-small", onclick: () => { state.confirmRemove = null; run(() => engine.removePlayer(p.uid)); } }, "Confirm remove"),
+              el("button", { class: "btn btn-quiet btn-small", onclick: () => { state.confirmRemove = null; render(); } }, "Keep"))
+          : el("button", { class: "btn btn-quiet btn-small", onclick: () => { state.confirmRemove = p.uid; render(); } }, "Remove"));
+    })));
 }

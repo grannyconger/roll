@@ -9,16 +9,16 @@ export const GAMES = {
   2: { rounds: 8, checkpoints: [1, 4, 7], doubleRound: 7, teamRounds: [1, 2, 3, 4] }
 };
 
-// Decide timers, in seconds.
+// Decide timers, in seconds. Rounds with a written response keep their full time.
 export function decideSecondsFor(game, round) {
   const g = GAMES[game]
-  if (game === 0) return 45;
+  if (game === 0) return 30;
   const team = g.teamRounds.includes(round);
   const checkpoint = g.checkpoints.includes(round);
   if (team && checkpoint) return 180;
-  if (team) return 120;
   if (checkpoint) return 120;
-  return 60;
+  if (team) return 105;
+  return 45;
 }
 
 export function isCheckpointRound(game, round) {
@@ -188,3 +188,30 @@ export function averageBalance(balances) {
   if (!balances.length) return START_BALANCE;
   return Math.round(balances.reduce((a, b) => a + b, 0) / balances.length);
 }
+
+// Team standings: the average balance of each table, highest first.
+// teams: [{ teamId, table, members: [{ uid }] }], balanceOf: uid -> number or undefined
+export function teamStandings(teams, balanceOf) {
+  return teams.map(t => {
+    const vals = t.members.map(m => balanceOf(m.uid)).filter(v => typeof v === "number");
+    const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : START_BALANCE;
+    return { teamId: t.teamId, table: t.table, average: Math.round(avg * 10) / 10, size: vals.length };
+  }).sort((a, b) => b.average - a.average);
+}
+
+// Leaderboard rows from live player records. Ties share a rank.
+export function rankPlayers(players) {
+  const list = players.slice().sort((a, b) => (b.balance ?? START_BALANCE) - (a.balance ?? START_BALANCE)
+    || (a.preferredName || "").localeCompare(b.preferredName || ""));
+  let rank = 0, prev = null;
+  return list.map((p, i) => {
+    const bal = p.balance ?? START_BALANCE;
+    if (bal !== prev) { rank = i + 1; prev = bal; }
+    const h = p.balanceHistory || [];
+    const change = h.length >= 2 ? h[h.length - 1] - h[h.length - 2] : null;
+    return { ...p, balance: bal, rank, change };
+  });
+}
+
+// $118 for a whole number, $115.5 otherwise
+export function avgMoney(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }

@@ -95,11 +95,78 @@ export function directionNode(direction, className = "") {
     up ? " Up, bull" : " Down, bear");
 }
 
+export function displayName(player) {
+  if (!player) return "";
+  return (player.preferredName || "") + (player.lastInitial ? " " + player.lastInitial + "." : "");
+}
+
 export function nameNode(player, onDark = false) {
   if (!player) return el("span", null, "");
   const color = onDark ? accentOnDark(player.accentColor) : accentOnLight(player.accentColor);
   return el("span", { class: "who", style: { color } },
-    (player.emoji || "") + " " + (player.preferredName || ""));
+    (player.emoji || "") + " " + displayName(player));
+}
+
+// The page takes on a student's chosen color. Buttons, picks, and highlights use it.
+export function applyAccent(key, onDark = false) {
+  const root = document.documentElement.style;
+  root.setProperty("--accent", onDark ? accentOnDark(key) : accentOnLight(key));
+  root.setProperty("--accentOnDark", accentOnDark(key));
+}
+
+// ---------- reward moments ----------
+// Short bursts only, at reward moments. Never during reading or writing. Off under reduced motion.
+function layer() {
+  const l = el("div", { class: "burst-layer", "aria-hidden": "true" });
+  document.body.appendChild(l);
+  return l;
+}
+
+export function burst(anchor, symbols, { count = 14, spread = 170 } = {}) {
+  if (reducedMotion()) return;
+  const r = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : { left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0 };
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const l = layer();
+  for (let i = 0; i < count; i++) {
+    const a = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+    const d = spread * (0.55 + Math.random() * 0.45);
+    const bit = el("span", { class: "burst-bit" }, symbols[i % symbols.length]);
+    bit.style.left = cx + "px";
+    bit.style.top = cy + "px";
+    bit.style.setProperty("--dx", Math.cos(a) * d + "px");
+    bit.style.setProperty("--dy", Math.sin(a) * d + "px");
+    bit.style.setProperty("--rot", Math.round(Math.random() * 360 - 180) + "deg");
+    l.appendChild(bit);
+  }
+  setTimeout(() => l.remove(), 1500);
+}
+
+export function rain(symbols, { count = 36, ms = 2600 } = {}) {
+  if (reducedMotion()) return;
+  const l = layer();
+  for (let i = 0; i < count; i++) {
+    const bit = el("span", { class: "rain-bit" }, symbols[i % symbols.length]);
+    bit.style.left = Math.random() * 100 + "vw";
+    bit.style.setProperty("--delay", Math.random() * (ms * 0.45) + "ms");
+    bit.style.setProperty("--dur", ms * (0.55 + Math.random() * 0.3) + "ms");
+    bit.style.setProperty("--rot", Math.round(Math.random() * 540 - 270) + "deg");
+    l.appendChild(bit);
+  }
+  setTimeout(() => l.remove(), ms + 400);
+}
+
+// Counts a money figure from one value to another.
+export function countUp(node, from, to, ms = 900) {
+  if (reducedMotion() || from === to || from == null) { node.textContent = "$" + to; return; }
+  const t0 = performance.now();
+  const step = t => {
+    const k = Math.min(1, (t - t0) / ms);
+    const eased = 1 - Math.pow(1 - k, 3);
+    node.textContent = "$" + Math.round(from + (to - from) * eased);
+    if (k < 1) requestAnimationFrame(step);
+  };
+  node.textContent = "$" + from;
+  requestAnimationFrame(step);
 }
 
 export function downloadText(filename, text, type = "text/csv") {

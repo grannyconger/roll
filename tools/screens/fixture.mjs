@@ -67,20 +67,22 @@ export function baseDocs({ dys = false } = {}) {
     const balance = 130 - i * 3 + (i % 3) * 2;
     const teamNo = Math.floor(i / 4) + 1;
     docs[`${P}/players/${uid}`] = {
-      uid, preferredName: name, emoji: EMOJIS[i], accentColor: ACCENTS[i % 8], joinedAt: { __ts: -3000 }, joinedLate: i === 23,
+      uid, preferredName: name, lastInitial: "MRTWJBSKLDPC"[i % 12], emoji: EMOJIS[i], accentColor: ACCENTS[i % 8], joinedAt: { __ts: -3000 }, joinedLate: i === 23,
       balance, balanceHistory: [100, balance], lateStart: null, archetype: ARCH[i % 4], teamId: "t" + teamNo, seat: (i % 4) + 1,
       calledOnCount: 0, dyslexiaFont: uid === "u1" ? dys : false
     };
     docs[`${P}/roster/${uid}`] = { uid, email: `${name.split(" ")[0].toLowerCase()}@greermiddlecollege.org`, accountName: name + " Student" };
-    board.push({ uid, preferredName: name, emoji: EMOJIS[i], accentColor: ACCENTS[i % 8], balance });
+    board.push({ uid, preferredName: name, lastInitial: "MRTWJBSKLDPC"[i % 12], emoji: EMOJIS[i], accentColor: ACCENTS[i % 8], balance });
   });
   board.sort((a, b) => b.balance - a.balance);
+  board.forEach((b, i) => { b.rank = i + 1; });
   docs[P].leaderboard = board;
+  docs[P].teamBoard = [1, 2, 3, 4, 5, 6].map(t => ({ teamId: "t" + t, table: "Table " + t, average: 124.5 - t * 3.25, size: 4 }));
 
   for (let t = 1; t <= 6; t++) {
     const members = [0, 1, 2, 3].map(k => {
       const i = (t - 1) * 4 + k;
-      return { uid: "u" + (i + 1), preferredName: NAMES[i], archetype: ARCH[i % 4], cerLevel: 1 + (i % 4), seat: k + 1 };
+      return { uid: "u" + (i + 1), preferredName: NAMES[i], lastInitial: "MRTWJBSKLDPC"[i % 12], emoji: EMOJIS[i], archetype: ARCH[i % 4], cerLevel: 1 + (i % 4), seat: k + 1 };
     });
     docs[`${P}/teams/t${t}`] = { teamId: "t" + t, table: "Table " + t, members, size: 4, createdAt: { __ts: -900 } };
   }

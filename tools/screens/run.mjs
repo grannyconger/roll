@@ -55,7 +55,16 @@ const SCENARIOS = [
   { name: "game1-complete", views: SD, session: { phase: "game1-complete", game: 1, round: 6 }, history: [1, 6] },
   { name: "feedback-1", views: SD, session: { phase: "feedback-1", game: 1, roundEndsAt: { __ts: 240 } }, history: [1, 6] },
   { name: "feedback-1-self-assess", views: ["student"], session: { phase: "feedback-1", game: 1, roundEndsAt: { __ts: 240 } }, history: [1, 6], edit: d => { delete d[fp.doc("feedback", "u1_1_1")]; d[fp.doc("responses", "u1_1_1")].submittedAt = { __ts: -60 }; } },
-  ...[1, 2, 3, 4, 5, 6].map(n => ({ name: "cer-step-" + n, views: SD, session: { phase: "cer-lesson", cerSubStep: n }, history: [1, 6] })),
+  ...Array.from({ length: 14 }, (_, i) => i + 1).map(n => ({ name: "cer-step-" + n, views: SD, session: { phase: "cer-lesson", cerSubStep: n, roundEndsAt: [3, 9, 13].includes(n) ? { __ts: 60 } : null }, history: [1, 6] })),
+  ...[4, 12].map(n => ({ name: "cer-poll-revealed-" + n, views: SD, session: { phase: "cer-lesson", cerSubStep: n, cerReveal: true }, history: [1, 6],
+    edit: d => { d[fp.doc("quizAnswers", `u1_cer_${n - 1}`)] = { uid: "u1", kind: "cer", slot: "cer", qid: "cer" + (n - 1), choice: 1, correct: true, points: 3 }; } })),
+  { name: "g1-r1-waiting-quiz", views: ["student"], session: round("game1", 1, 1, "decide"), history: [1, 0],
+    edit: d => { d[fp.doc("decisions", "u1_1_1")] = { uid: "u1", game: 1, round: 1, choice: "IN", decidedAt: { __ts: -5 } }; addResponse(d, "u1_1_1", { uid: "u1", game: 1, round: 1, kind: "checkpoint", decision: "IN", text: TEXT.short }, 2); } },
+  { name: "g1-r1-quiz-answered", views: ["student"], session: round("game1", 1, 1, "decide"), history: [1, 0],
+    edit: d => { d[fp.doc("decisions", "u1_1_1")] = { uid: "u1", game: 1, round: 1, choice: "IN", decidedAt: { __ts: -5 } }; addResponse(d, "u1_1_1", { uid: "u1", game: 1, round: 1, kind: "checkpoint", decision: "IN", text: TEXT.short }, 2); },
+    action: async page => { await page.locator(".quiz .option-btn").first().click(); } },
+  { name: "g2-r2-settled-teams", views: SD, session: round("game2", 2, 2, "settled", { isTeamRound: true }), history: [2, 2] },
+  { name: "g2-r3-team-leaderboard", views: ["display"], session: round("game2", 2, 3, "settled", { leaderboardVisible: true, isTeamRound: true }), history: [2, 3] },
   { name: "team-assignment", views: SD, session: { phase: "team-assignment", teamSeatingVisible: true, roundEndsAt: { __ts: 60 } }, history: [1, 6] },
   { name: "team-huddle", views: SD, session: { phase: "team-huddle", roundEndsAt: { __ts: 170 } }, history: [1, 6] },
   { name: "g2-r1-team-checkpoint", views: SD, session: round("game2", 2, 1, "decide", { isTeamRound: true }), history: [1, 6] },
@@ -144,7 +153,7 @@ function audit(view) {
 // ---------- run ----------
 async function shoot(browser, viewName, sc, dys) {
   const v = VIEWS[viewName];
-  const ctx = await browser.newContext({ viewport: v.viewport, reducedMotion: "reduce", deviceScaleFactor: 1 });
+  const ctx = await browser.newContext({ viewport: v.viewport, reducedMotion: process.env.RWM_MOTION ? "no-preference" : "reduce", deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push(String(e.message || e)));
@@ -169,7 +178,7 @@ async function shoot(browser, viewName, sc, dys) {
   await fontsReady(page);
   await page.waitForTimeout(400);
   if (sc.action && viewName === "student") { try { await sc.action(page); } catch (e) { errors.push("click failed: " + e.message.split("\n")[0]); } }
-  await page.waitForTimeout(sc.settle || 500);
+  await page.waitForTimeout(Number(process.env.RWM_SETTLE) || sc.settle || 500);
   await fontsReady(page);
   await page.waitForTimeout(150);
   const result = await page.evaluate(audit, viewName);

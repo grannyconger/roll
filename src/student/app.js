@@ -1,17 +1,21 @@
 // Student view. One task visible at a time. Student text is rendered as text nodes only.
 import {
-  db, auth, doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, onSnapshot,
+  db, auth, doc, getDoc, getDocFromServer, getDocs, setDoc, updateDoc, collection, query, where, onSnapshot,
   serverTimestamp, watchAuth, signInWithSchoolGoogle, signInWithClassCode, signOutNow
 } from "../firebase.js";
 import { watchSession, watchCollection, subDoc, sub, measureClockOffset, serverNow, millisOf } from "../session.js";
 import {
-  GAMES, isCheckpointRound, isDoubleRound, isTeamRound, isFinalRound, valueOfChoice, signedMoney, START_BALANCE
+  GAMES, isCheckpointRound, isDoubleRound, isTeamRound, isFinalRound, valueOfChoice, signedMoney, START_BALANCE, avgMoney
 } from "../game.js";
-import { el, mount, countdown, bootPage, openOverlay, setDyslexiaFont, directionNode, reducedMotion, nameNode } from "../shared/ui.js";
+import {
+  el, mount, countdown, bootPage, openOverlay, setDyslexiaFont, directionNode, reducedMotion, nameNode, displayName,
+  applyAccent, burst, rain, countUp
+} from "../shared/ui.js";
 import { agendaBlock, vocabBlock, guideBlock } from "../shared/panels.js";
 import {
   OBJECTIVE, EMOJIS, RULES, CHECKPOINT_PROMPT, GAME2_STEM, EXIT_PROMPT, CLOSURE_QUESTIONS,
-  PROBE_TEXT, CER_STEPS, MIND_TRAPS, WAYGROUND_URL, SCORING_GUIDE
+  PROBE_TEXT, CER_STEPS, MIND_TRAPS, WAYGROUND_URL, SCORING_GUIDE, RULE_EXAMPLES,
+  QUIZ, QUIZ_PER_WAIT, SPARKLE_RIGHT, SPARKLE_WRONG
 } from "../shared/content.js";
 import { ACCENTS, accentOnLight } from "../shared/tokens.js";
 import { assessorUrl, setAssessorUrl } from "../shared/config.js";
@@ -21,21 +25,27 @@ const state = {
   user: null, sessionId: null, session: null, player: undefined,
   decisions: {}, responses: {}, feedback: {}, math: {}, rolls: {}, teams: {}, probe: null,
   peerAssignment: null, joinError: null, busy: false, showReasonBox: false,
-  mathLocal: {}, unsubs: [], lastKey: null
+  mathLocal: {}, unsubs: [], lastKey: null, quiz: {}, quizShow: null, offline: false, lastScreen: null
 };
+// Google sign-in stays in the code but is hidden. Add ?google=1 to the address to show it.
+const GOOGLE_ON = new URLSearchParams(location.search).get("google") === "1";
+let pendingCode = null;
 const drafts = loadDrafts();
 
 bootPage();
+applyAccent(localGet("rwm-accent") || "slate");
+startFullscreenGate();
 watchAuth(async user => {
   state.user = user;
-  if (!user) { cleanup(); renderSignIn(); return; }
+  if (!user) { cleanup(); GOOGLE_ON ? renderSignIn() : renderClassCode(); return; }
   await measureClockOffset();
-  // a remembered session is reused only if this student already joined it,
-  // because the same laptop serves both sections
+  // a remembered session is reused only if this student already joined it and it
+  // started recently, because the same laptop serves both sections
   const fromUrl = new URLSearchParams(location.search).get("s");
   const remembered = localGet("rwm-session");
-  if (fromUrl && await sessionExists(fromUrl)) startSession(fromUrl);
-  else if (remembered && await alreadyJoined(remembered)) startSession(remembered);
+  if (pendingCode) { const c = pendingCode; pendingCode = null; lookupCode(c); }
+  else if (fromUrl && await sessionExists(fromUrl)) startSession(fromUrl);
+  else if (remembered && await recentlyJoined(remembered)) startSession(remembered);
   else renderClassCode();
 });
 
@@ -52,6 +62,18 @@ async function alreadyJoined(sid) {
   try { return (await getDoc(subDoc(sid, "players", uid()))).exists(); } catch (e) { return false; }
 }
 
+// Sessions older than this are a different class period on a shared laptop.
+const SESSION_REUSE_MS = 150 * 60 * 1000;
+async function recentlyJoined(sid) {
+  try {
+    const sess = await getDoc(doc(db, "sessions", sid));
+    if (!sess.exists()) return false;
+    const at = millisOf(sess.data().createdAt);
+    if (at && serverNow() - at > SESSION_REUSE_MS) return false;
+    return await alreadyJoined(sid);
+  } catch (e) { return false; }
+}
+
 async function sessionExists(sid) {
   try { return (await getDoc(doc(db, "sessions", sid))).exists(); } catch (e) { return false; }
 }
@@ -60,6 +82,101 @@ function cleanup() {
   state.unsubs.forEach(u => u());
   state.unsubs = [];
   state.lastKey = null;
+}
+
+// ---------- sign in ----------
+// Only shown with ?google=1. Students join with the class code.
+function renderSignIn(message) {
+  state.lastKey = null;
+  mount(root, el("main", { class: "center-screen" },
+    el("p", { class: "hero-emoji", "aria-hidden": "true" }, "🎲"),
+    el("h1", null, "Roll with the Market"),
+    el("button", { class: "btn btn-big", onclick: async () => {
+      try { await signInWithSchoolGoogle(); } catch (e) { renderSignIn("Google sign-in did not work. Use the class code instead."); }
+    } }, "Sign in with Google"),
+    message ? el("p", { class: "notice" }, message) : null,
+    el("p", { class: "spaced" }, el("button", { class: "btn-quiet btn", onclick: () => renderClassCode() }, "Use the class code instead")),
+    preJoinFontButton()));
+}
+
+function renderClassCode(message) {
+  state.lastKey = null;
+  const input = el("input", { type: "text", id: "code", class: "code-input", autocomplete: "off", maxlength: "8", "aria-label": "Class code", spellcheck: "false" });
+  const status = el("p", { class: "notice", role: "status" }, message || "");
+  const btn = el("button", { class: "btn btn-big", onclick: () => go() }, "Join");
+  const go = async () => {
+    const code = input.value.trim().toUpperCase();
+    if (!code) { status.textContent = "Type the class code from the board."; return; }
+    btn.disabled = true;
+    status.textContent = "Connecting.";
+    if (!state.user) {
+      pendingCode = code;
+      try { await signInWithClassCode(); }
+      catch (e) { pendingCode = null; btn.disabled = false; status.textContent = "Could not connect. Check the wifi and try again."; }
+      return;
+    }
+    lookupCode(code);
+  };
+  input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  mount(root, el("main", { class: "center-screen" },
+    el("p", { class: "hero-emoji", "aria-hidden": "true" }, "🎲"),
+    el("h1", null, "Roll with the Market"),
+    el("label", { class: "field", for: "code" }, "Enter the class code"),
+    el("p", { class: "muted" }, "The code is on the board."),
+    el("div", { class: "row" }, input, btn),
+    status,
+    GOOGLE_ON && state.user ? el("p", { class: "spaced" }, el("button", { class: "btn btn-quiet", onclick: () => signOutNow() }, "Sign out")) : null,
+    preJoinFontButton()));
+  input.focus();
+}
+
+async function lookupCode(code) {
+  try {
+    const snap = await getDocs(query(collection(db, "sessions"), where("classCode", "==", code)));
+    const found = [];
+    snap.forEach(d => found.push({ id: d.id, ...d.data() }));
+    found.sort((a, b) => (millisOf(b.createdAt) || 0) - (millisOf(a.createdAt) || 0));
+    if (!found.length) return renderClassCode("No class has that code. Check the board.");
+    const s = found[0];
+    // say so now, before the student fills in the whole join form
+    if (!(await alreadyJoined(s.id))) {
+      if (s.joinLocked) return renderClassCode("Joining is closed. Tell your teacher.");
+      if (isAnon() && !s.allowAnonymous) return renderClassCode("Class code sign-in is off. Tell your teacher, then enter the code again.");
+    }
+    startSession(s.id);
+  } catch (e) {
+    renderClassCode("That did not work. Check the code and try again.");
+  }
+}
+
+// ---------- full screen ----------
+// The site runs in full screen. Leaving it covers the page until the student returns.
+function isFullscreen() {
+  if (document.fullscreenElement) return true;
+  // F11 full screen does not set fullscreenElement
+  return Math.abs(window.innerHeight - screen.height) < 3 && Math.abs(window.innerWidth - screen.width) < 3;
+}
+function startFullscreenGate() {
+  if (navigator.webdriver || !document.fullscreenEnabled) return;
+  let gate = null;
+  const check = () => {
+    if (isFullscreen()) { if (gate) { gate.remove(); gate = null; } return; }
+    if (gate) return;
+    const msg = el("p", { class: "notice" });
+    gate = el("div", { class: "fs-gate", role: "dialog", "aria-modal": "true", "aria-label": "Full screen" },
+      el("div", { class: "fs-panel" },
+        el("p", { class: "hero-emoji", "aria-hidden": "true" }, "🎲"),
+        el("h1", null, "Full screen is on for this lesson"),
+        el("p", null, "Your work is saved. Click to go back in."),
+        el("button", { class: "btn btn-big", onclick: () => {
+          document.documentElement.requestFullscreen().catch(() => { msg.textContent = "Full screen did not start. Press F11."; });
+        } }, "Enter full screen"),
+        msg));
+    document.body.appendChild(gate);
+  };
+  document.addEventListener("fullscreenchange", check);
+  window.addEventListener("resize", check);
+  check();
 }
 
 // ---------- font before joining ----------
@@ -79,57 +196,6 @@ function preJoinFontButton() {
   return el("p", { class: "spaced" }, btn);
 }
 
-// ---------- sign in ----------
-function renderSignIn(message) {
-  state.lastKey = null;
-  mount(root, el("main", { class: "center-screen" },
-    el("h1", null, "Roll with the Market"),
-    el("p", null, "Sign in with your school Google account."),
-    el("button", { class: "btn btn-big", onclick: async () => {
-      try { await signInWithSchoolGoogle(); } catch (e) { renderSignIn("Google sign-in did not work. Use the class code instead."); }
-    } }, "Sign in with Google"),
-    message ? el("p", { class: "notice" }, message) : null,
-    el("p", { class: "spaced" },
-      el("button", { class: "btn-quiet btn", onclick: async () => {
-        try { await signInWithClassCode(); } catch (e) { renderSignIn("Class code sign-in is off. Tell your teacher."); }
-      } }, "Sign in with the class code instead")),
-    preJoinFontButton()));
-}
-
-function renderClassCode(message) {
-  state.lastKey = null;
-  const input = el("input", { type: "text", id: "code", autocomplete: "off", maxlength: "8", "aria-label": "Class code" });
-  const go = async () => {
-    const code = input.value.trim().toUpperCase();
-    if (!code) return;
-    try {
-      const snap = await getDocs(query(collection(db, "sessions"), where("classCode", "==", code)));
-      const found = [];
-      snap.forEach(d => found.push({ id: d.id, ...d.data() }));
-      found.sort((a, b) => (millisOf(b.createdAt) || 0) - (millisOf(a.createdAt) || 0));
-      if (!found.length) return renderClassCode("No class has that code. Check the board.");
-      const s = found[0];
-      // say so now, before the student fills in the whole join form
-      if (!(await alreadyJoined(s.id))) {
-        if (s.joinLocked) return renderClassCode("Joining is closed. Tell your teacher.");
-        if (isAnon() && !s.allowAnonymous) return renderClassCode("Class code sign-in is off. Tell your teacher, then enter the code again.");
-      }
-      startSession(s.id);
-    } catch (e) {
-      renderClassCode("That did not work. Check the code and try again.");
-    }
-  };
-  input.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
-  mount(root, el("main", { class: "center-screen" },
-    el("h1", null, "Enter the class code"),
-    el("p", null, "The code is on the board."),
-    el("div", { class: "row" }, input, el("button", { class: "btn", onclick: go }, "Join")),
-    message ? el("p", { class: "notice" }, message) : null,
-    el("p", { class: "spaced" }, el("button", { class: "btn btn-quiet", onclick: () => signOutNow() }, "Sign out")),
-    preJoinFontButton()));
-  input.focus();
-}
-
 // ---------- session subscriptions ----------
 function startSession(sid) {
   cleanup();
@@ -139,7 +205,11 @@ function startSession(sid) {
   state.unsubs.push(watchSession(sid, s => { state.session = s; setAssessorUrl(s && s.assessorUrl); render(); }, () => renderClassCode("That class is not available.")));
   state.unsubs.push(onSnapshot(subDoc(sid, "players", me), snap => {
     state.player = snap.exists() ? snap.data() : null;
-    if (state.player) setDyslexiaFont(state.player.dyslexiaFont);
+    if (state.player) {
+      setDyslexiaFont(state.player.dyslexiaFont);
+      applyAccent(state.player.accentColor);
+      localSet("rwm-accent", state.player.accentColor || "slate");
+    }
     render();
   }, () => { state.player = null; render(); }));
   const mine = [["uid", "==", me]];
@@ -152,9 +222,40 @@ function startSession(sid) {
   state.unsubs.push(watchCollection(sid, "teams", l => { state.teams = byId(l); render(); }));
   state.unsubs.push(onSnapshot(subDoc(sid, "probes", me), s => { state.probe = s.exists() ? s.data() : null; render(); }, () => {}));
   state.unsubs.push(onSnapshot(subDoc(sid, "peerAssignments", me), s => { state.peerAssignment = s.exists() ? s.data() : null; render(); }, () => {}));
+  state.unsubs.push(watchCollection(sid, "quizAnswers", l => { state.quiz = byId(l); render(); }, mine));
   // re-check timed fallbacks, such as the 20 second assessor degrade
   const t = setInterval(() => render(), 2000);
   state.unsubs.push(() => clearInterval(t));
+  state.unsubs.push(startWatchdog(sid));
+}
+
+// The live listener can stall on some school networks and leave a screen stuck
+// on an old phase. Every 8 seconds, read the session straight from the server.
+// If it disagrees with the screen twice in a row, use the fresh copy and
+// restart every listener. Two strikes, so a normal phase change is never mistaken
+// for a stall.
+function startWatchdog(sid) {
+  let strikes = 0, fails = 0;
+  const sig = x => x ? [x.phase, x.game, x.round, x.roundState, x.cerSubStep, x.cerReveal, x.ruleStep, x.biasSurveyPushId].join("|") : "";
+  const iv = setInterval(async () => {
+    if (state.sessionId !== sid) return;
+    try {
+      const snap = await getDocFromServer(doc(db, "sessions", sid));
+      fails = 0;
+      if (state.offline) { state.offline = false; state.lastKey = null; render(); }
+      if (!snap.exists()) return;
+      const fresh = { id: snap.id, ...snap.data() };
+      if (sig(fresh) === sig(state.session)) { strikes = 0; return; }
+      if (++strikes < 2) return;
+      console.warn("session listener stalled, restarting");
+      startSession(sid);
+      state.session = fresh;
+      render();
+    } catch (e) {
+      if (++fails >= 2 && !state.offline) { state.offline = true; state.lastKey = null; render(); }
+    }
+  }, 8000);
+  return () => clearInterval(iv);
 }
 
 // ---------- render loop ----------
@@ -168,9 +269,24 @@ function render() {
   if (k === state.lastKey) return;
   state.lastKey = k;
   const focusedId = document.activeElement && document.activeElement.id;
-  mount(root, topBar(), el("main", { class: "task" }, taskScreen(vm)));
+  let body;
+  try { body = taskScreen(vm); }
+  catch (e) {
+    console.error(e);
+    body = el("section", { class: "center-block" }, el("h1", null, "This screen did not load"),
+      el("p", null, "Your work is saved."), el("button", { class: "btn btn-big", onclick: () => location.reload() }, "Reload"));
+  }
+  // a new screen slides in once. Updates to the same screen never move.
+  const screenId = [vm.phase, vm.game, vm.round, vm.rs, vm.sub, vm.rule].join("|");
+  const fresh = screenId !== state.lastScreen;
+  state.lastScreen = screenId;
+  mount(root, topBar(), el("main", { class: "task" + (fresh && !reducedMotion() ? " enter" : "") }, body));
   if (focusedId) { const f = document.getElementById(focusedId); if (f) f.focus(); }
+  afterRender.splice(0).forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
 }
+// work that needs the new screen on the page, such as a burst at a button
+const afterRender = [];
+const celebrated = { poll: null, quiz: null };
 
 function viewModel() {
   const s = state.session;
@@ -190,7 +306,9 @@ function viewModel() {
     fb, resp, reasonBox: state.showReasonBox, busy: state.busy,
     probe: state.probe ? state.probe.submittedAt ? "done" : "partial" : null,
     peer: state.peerAssignment ? state.peerAssignment.items.length : 0, peerDone: peerDone(),
-    teams: Object.keys(state.teams).length
+    teams: Object.keys(state.teams).length, reveal: !!s.cerReveal,
+    quiz: Object.keys(state.quiz).sort().join(), quizShow: state.quizShow, offline: state.offline,
+    li: p.lastInitial || "", tb: (s.teamBoard || []).map(t => t.teamId + t.average).join()
   };
 }
 
@@ -204,17 +322,21 @@ function mathState(g, r) {
 function topBar() {
   const p = state.player;
   return el("header", { class: "topbar" },
-    el("div", { class: "objective" }, el("strong", null, "Objective: "), OBJECTIVE),
     el("div", { class: "topbar-row" },
-      el("div", { class: "me" }, nameNode(p), el("span", { class: "balance" }, " Balance ", el("span", { class: "money" }, "$" + (p.balance ?? START_BALANCE)))),
+      el("div", { class: "me" }, nameNode(p)),
+      el("div", { class: "stats" },
+        el("span", { class: "stat" }, el("span", { class: "stat-k" }, "Balance"), el("span", { class: "money stat-v" }, "$" + (p.balance ?? START_BALANCE))),
+        el("span", { class: "stat" }, el("span", { class: "stat-k" }, "✨ Sparkle Points"), el("span", { class: "money stat-v" }, String(sparkleTotal())))),
       el("nav", { class: "tools" },
         el("button", { class: "btn btn-quiet", onclick: () => openOverlay("Agenda", agendaBlock(state.session.phase)) }, "Agenda"),
         el("button", { class: "btn btn-quiet", onclick: () => openOverlay("Vocabulary", vocabBlock()) }, "Vocabulary"),
         el("button", { class: "btn btn-quiet", onclick: () => openOverlay("Scoring guide", guideBlock()) }, "Scoring guide"),
         el("button", { class: "btn btn-quiet", onclick: openProfile }, "Name and color"),
-        el("button", { class: "btn btn-quiet", onclick: () => signOutNow() }, "Sign out"),
+        GOOGLE_ON && !isAnon() ? el("button", { class: "btn btn-quiet", onclick: () => signOutNow() }, "Sign out") : null,
         el("button", { class: "btn btn-quiet", "aria-pressed": p.dyslexiaFont ? "true" : "false", onclick: toggleFont },
-          p.dyslexiaFont ? "Standard font" : "Dyslexia font"))));
+          p.dyslexiaFont ? "Standard font" : "Dyslexia font"))),
+    el("div", { class: "objective" }, el("strong", null, "Objective: "), OBJECTIVE),
+    state.offline ? el("p", { class: "offline", role: "status" }, "Reconnecting. If this stays, press Ctrl and R.") : null);
 }
 
 async function toggleFont() {
@@ -229,49 +351,90 @@ let joinDraft = null;
 function renderJoin() {
   state.lastKey = null;
   if (!joinDraft) {
-    const first = (state.user.displayName || "").split(" ")[0];
-    joinDraft = { name: first, emoji: null, accent: null };
+    const parts = (state.user.displayName || "").split(" ");
+    joinDraft = { name: parts[0] || "", last: parts.slice(1).join(" "), emoji: null, accent: null, confirmDuplicate: false };
   }
-  mount(root, el("main", { class: "task join" }, profileForm(joinDraft, "Join the class", submitJoin), preJoinFontButton()));
+  const first = state.lastScreen !== "join";
+  state.lastScreen = "join";
+  mount(root, el("main", { class: "task join" + (first && !reducedMotion() ? " enter" : "") }, profileForm(joinDraft, "Join the class", submitJoin, true), preJoinFontButton()));
 }
 
-function profileForm(d, title, onSubmit) {
-  const nameInput = el("input", { type: "text", id: "pname", maxlength: "20", value: d.name || "", "aria-label": "Preferred first name" });
-  nameInput.addEventListener("input", () => { d.name = nameInput.value; });
+function profileForm(d, title, onSubmit, joining = false) {
+  const nameInput = el("input", { type: "text", id: "pname", maxlength: "20", value: d.name || "", autocomplete: "off", "aria-label": joining ? "First name" : "Preferred first name" });
+  nameInput.addEventListener("input", () => { d.name = nameInput.value; d.confirmDuplicate = false; });
+  const lastInput = joining ? el("input", { type: "text", id: "plast", maxlength: "30", value: d.last || "", autocomplete: "off", "aria-label": "Last name" }) : null;
+  if (lastInput) lastInput.addEventListener("input", () => { d.last = lastInput.value; d.confirmDuplicate = false; });
   const emojiGrid = el("div", { class: "emoji-grid", role: "radiogroup", "aria-label": "Emoji" },
     EMOJIS.map(e => el("button", {
       class: "emoji", type: "button", role: "radio", "aria-checked": d.emoji === e ? "true" : "false",
-      onclick: ev => { d.emoji = e; emojiGrid.querySelectorAll(".emoji").forEach(b => b.setAttribute("aria-checked", "false")); ev.currentTarget.setAttribute("aria-checked", "true"); }
+      onclick: ev => {
+        d.emoji = e;
+        emojiGrid.querySelectorAll(".emoji").forEach(b => b.setAttribute("aria-checked", "false"));
+        ev.currentTarget.setAttribute("aria-checked", "true");
+        burst(ev.currentTarget, [e], { count: 6, spread: 60 });
+      }
     }, e)));
   const colorRow = el("div", { class: "color-row", role: "radiogroup", "aria-label": "Accent color" },
     Object.entries(ACCENTS).map(([k, a]) => el("button", {
       class: "swatch", type: "button", role: "radio", "aria-checked": d.accent === k ? "true" : "false",
       style: { color: a.onLight },
-      onclick: ev => { d.accent = k; colorRow.querySelectorAll(".swatch").forEach(b => b.setAttribute("aria-checked", "false")); ev.currentTarget.setAttribute("aria-checked", "true"); }
+      onclick: ev => {
+        d.accent = k;
+        colorRow.querySelectorAll(".swatch").forEach(b => b.setAttribute("aria-checked", "false"));
+        ev.currentTarget.setAttribute("aria-checked", "true");
+        applyAccent(k);
+      }
     }, el("span", { class: "swatch-dot", style: { background: a.onLight }, "aria-hidden": "true" }), a.label)));
   const error = el("p", { class: "notice", role: "status" }, state.joinError || "");
   return el("div", null,
     el("h1", null, title),
-    el("label", { class: "field", for: "pname" }, "Preferred first name"), nameInput,
+    joining
+      ? el("div", { class: "name-row" },
+          el("div", null, el("label", { class: "field", for: "pname" }, "First name"), nameInput),
+          el("div", null, el("label", { class: "field", for: "plast" }, "Last name"), lastInput))
+      : [el("label", { class: "field", for: "pname" }, "Preferred first name"), nameInput],
+    joining ? el("p", { class: "muted small" }, "Classmates see your first name and last initial. Your teacher sees your full name.") : null,
     el("h2", { class: "field" }, "Pick one emoji"), emojiGrid,
-    el("h2", { class: "field" }, "Pick one color"), colorRow,
+    el("h2", { class: "field" }, "Pick one color"), el("p", { class: "muted small" }, "Your color follows you through the whole lesson."), colorRow,
     error,
     el("button", { class: "btn btn-big spaced", onclick: () => {
       const name = (d.name || "").trim();
+      const last = (d.last || "").trim();
       if (!name) { error.textContent = "Enter your first name."; return; }
+      if (joining && !last) { error.textContent = "Enter your last name."; return; }
       if (!d.emoji) { error.textContent = "Pick an emoji."; return; }
       if (!d.accent) { error.textContent = "Pick a color."; return; }
-      onSubmit({ name: name.slice(0, 20), emoji: d.emoji, accent: d.accent }, error);
-    } }, title === "Join the class" ? "Join" : "Save"));
+      onSubmit({ name: name.slice(0, 20), last: last.slice(0, 30), emoji: d.emoji, accent: d.accent }, error, d);
+    } }, joining ? "Join" : "Save"));
 }
 
-async function submitJoin(d, errorNode) {
+// A student who already joined on another laptop would make a second copy of
+// themselves. Ask before that happens.
+async function nameAlreadyTaken(first, initial) {
+  try {
+    const snap = await getDocs(collection(db, "sessions", state.sessionId, "players"));
+    let taken = false;
+    snap.forEach(x => {
+      const p = x.data();
+      if (x.id !== uid() && (p.preferredName || "").toLowerCase() === first.toLowerCase() && (p.lastInitial || "") === initial) taken = true;
+    });
+    return taken;
+  } catch (e) { return false; }
+}
+
+async function submitJoin(d, errorNode, draft) {
   const s = state.session;
   const inGame = (s.phase === "game1" || s.phase === "game2") && s.game >= 1;
   const lateBalance = Math.round(s.classAverageBalance ?? START_BALANCE);
   const joinedLate = PHASES_AFTER_START.includes(s.phase);
+  const initial = d.last.charAt(0).toUpperCase();
+  if (!draft.confirmDuplicate && await nameAlreadyTaken(d.name, initial)) {
+    draft.confirmDuplicate = true;
+    errorNode.textContent = `${d.name} ${initial}. already joined. If that is you on another laptop, tell your teacher. If it is a different student, press Join again.`;
+    return;
+  }
   const player = {
-    uid: uid(), preferredName: d.name, emoji: d.emoji, accentColor: d.accent,
+    uid: uid(), preferredName: d.name, lastInitial: initial, emoji: d.emoji, accentColor: d.accent,
     joinedAt: serverTimestamp(), joinedLate,
     balance: inGame ? lateBalance : START_BALANCE,
     balanceHistory: [inGame ? lateBalance : START_BALANCE],
@@ -283,9 +446,10 @@ async function submitJoin(d, errorNode) {
   try {
     await setDoc(subDoc(state.sessionId, "players", uid()), player);
     await setDoc(subDoc(state.sessionId, "roster", uid()), {
-      uid: uid(), email: state.user.email || null, accountName: state.user.displayName || d.name
+      uid: uid(), email: state.user.email || null, accountName: `${d.name} ${d.last}`, firstName: d.name, lastName: d.last
     }).catch(() => {});
     joinDraft = null;
+    requestAnimationFrame(() => rain([d.emoji, "✨"], { count: 28 }));
   } catch (e) {
     // A refused write first shows the player locally, then removes it, which
     // redraws the form. Keep the message in state so the redrawn form shows it.
@@ -298,7 +462,7 @@ function joinRefusedMessage(s) {
   if (s.joinLocked) return "Joining is closed. Tell your teacher.";
   if (isAnon() && !s.allowAnonymous) return "Class code sign-in is off. Tell your teacher.";
   const email = (state.user && state.user.email) || "";
-  if (email && !/@greermiddlecollege\.org$/i.test(email)) return `${email} is not a school account. Sign out and use your school account, or tell your teacher.`;
+  if (email && !/@greermiddlecollege\.org$/i.test(email)) return `${email} is not a school account. Tell your teacher.`;
   return "That did not work. Tell your teacher.";
 }
 const PHASES_AFTER_START = ["game1", "game1-complete", "feedback-1", "cer-lesson", "team-assignment", "team-huddle", "game2", "game2-probe", "game2-complete", "peer-scoring", "debrief", "exit-ticket", "closure"];
@@ -308,6 +472,7 @@ function openProfile() {
   const d = { name: p.preferredName, emoji: p.emoji, accent: p.accentColor };
   let close = null;
   close = openOverlay("Name and color", profileForm(d, "Change your name, emoji, or color", async (v, err) => {
+    applyAccent(v.accent);
     try {
       await updateDoc(subDoc(state.sessionId, "players", uid()), { preferredName: v.name, emoji: v.emoji, accentColor: v.accent });
       close();
@@ -321,8 +486,11 @@ function taskScreen(vm) {
   if (surveyOpen()) return biasSurveyScreen();
   switch (s.phase) {
     case "lobby":
-    case "agenda": return el("section", null, el("h1", null, "Read the agenda"), agendaBlock(s.phase));
+    case "agenda": return el("section", null,
+      el("p", { class: "hello" }, `Welcome, ${state.player.emoji || ""} ${state.player.preferredName}.`),
+      el("h1", null, "Read the agenda"), agendaBlock(s.phase));
     case "vocab-warmup": return el("section", { class: "center-block" },
+      el("p", { class: "hero-emoji", "aria-hidden": "true" }, "🐂 🐻"),
       el("h1", null, "Vocab Warm Up"),
       el("p", null, el("a", { class: "btn btn-big", href: WAYGROUND_URL, target: "_blank", rel: "noopener" }, "Open Wayground")),
       el("p", null, "Come back to this tab when the warm-up ends."));
@@ -354,7 +522,8 @@ function rulesScreen() {
   const step = Math.max(1, Math.min(RULES.length, state.session.ruleStep || 1));
   return el("section", null,
     el("h1", null, "How the game works"),
-    el("ol", { class: "rules" }, RULES.slice(0, step).map(r => el("li", null, r))));
+    el("ol", { class: "rules" }, RULES.slice(0, step).map((r, i) => el("li", { class: i === step - 1 ? "rule-new" : "" }, r,
+      i === step - 1 ? el("span", { class: "rule-example" }, "Example: " + RULE_EXAMPLES[i]) : null))));
 }
 
 // ---------- game loop ----------
@@ -363,7 +532,7 @@ function gameLoop() {
   const g = s.game, r = s.round;
   const dec = state.decisions[key(g, r)];
   switch (s.roundState) {
-    case "decide": return dec ? waitingScreen(dec, "Locked in. Wait for the roll.") : decideScreen();
+    case "decide": return dec ? waitingScreen(dec, "Locked in. Wait for the roll.", quizSlotFor(g, r)) : decideScreen();
     case "locked":
     case "rolling": return waitingScreen(dec, "The roll is on the board. Look up.");
     case "revealed":
@@ -393,8 +562,12 @@ function decideScreen() {
   const draftKey = key(g, r);
   const d = drafts[draftKey] || (drafts[draftKey] = { choice: null, text: "" });
 
-  const inBtn = el("button", { class: "choice", "aria-pressed": d.choice === "IN" ? "true" : "false", onclick: () => pick("IN") }, "IN");
-  const outBtn = el("button", { class: "choice", "aria-pressed": d.choice === "OUT" ? "true" : "false", onclick: () => pick("OUT") }, "OUT");
+  const choiceBtn = (c, icon, sub) => el("button", { class: "choice choice-card", "aria-pressed": d.choice === c ? "true" : "false", "aria-label": c, onclick: () => pick(c) },
+    el("span", { class: "choice-icon", "aria-hidden": "true" }, icon),
+    el("span", { class: "choice-word" }, c),
+    el("span", { class: "choice-sub" }, sub));
+  const inBtn = choiceBtn("IN", "📈", isDoubleRound(g, r) ? "The market moves you, twice" : "The market moves your money");
+  const outBtn = choiceBtn("OUT", "🏦", "A sure $1");
   function pick(c) {
     d.choice = c; saveDrafts();
     inBtn.setAttribute("aria-pressed", c === "IN" ? "true" : "false");
@@ -415,7 +588,10 @@ function decideScreen() {
     const ok = await submitDecision(g, r, d.choice, writing ? d.text.trim() : null, checkpoint ? "checkpoint" : "chosen");
     state.busy = false;
     if (!ok) { lockBtn.disabled = false; error.textContent = "The round is locked. Your pick did not count."; }
-    else { state.showReasonBox = false; delete drafts[draftKey]; saveDrafts(); }
+    else {
+      state.showReasonBox = false; delete drafts[draftKey]; saveDrafts();
+      requestAnimationFrame(() => burst(document.querySelector(".stamp"), [state.player.emoji || "✨", "✨"], { count: 12 }));
+    }
   } }, "Lock in");
 
   return el("section", null,
@@ -470,11 +646,15 @@ function requestAssessment(responseId, r) {
   }).catch(() => { /* the hub retries pending responses */ });
 }
 
-function waitingScreen(dec, line) {
-  return el("section", { class: "center-block" },
+function waitingScreen(dec, line, slot) {
+  const head = [
     el("p", { class: "round-label" }, roundLabel()),
+    el("p", { class: "stamp", "aria-hidden": "true" }, dec ? (dec.choice === "IN" ? "📈" : "🏦") : "⏳"),
     el("h1", null, line),
-    dec ? el("p", null, "Your pick: ", el("strong", null, dec.choice)) : el("p", null, "No pick this round. You are OUT."));
+    dec ? el("p", { class: "pick-line" }, "Your pick: ", el("strong", { class: "accent-text" }, dec.choice)) : el("p", null, "No pick this round. You are OUT.")
+  ];
+  if (slot) return el("section", { class: "wait-split" }, el("div", { class: "wait-head" }, head), quizPanel(slot));
+  return el("section", { class: "center-block" }, head);
 }
 
 // The impact modal. The student computes the new balance. The answer is never shown first.
@@ -549,7 +729,10 @@ async function recordMath(g, r, expected, value, priorAttempts) {
     uid: uid(), game: g, round: r, expected, attempts, correct,
     usedHint: attempts.length > 1, revealed, settledAt: (correct || revealed) ? serverTimestamp() : null
   };
-  if (correct) state.mathLocal[id] = { done: true, message: `Correct. Your new balance is $${expected}.` };
+  if (correct) {
+    state.mathLocal[id] = { done: true, message: `Correct. Your new balance is $${expected}.` };
+    afterRender.push(() => burst(document.querySelector(".result"), ["✔", "✨", state.player.emoji || "⭐"], { count: 12 }));
+  }
   else if (revealed) state.mathLocal[id] = { done: true, message: `Your new balance is $${expected}.` };
   // redraw now, before the save is confirmed. Redrawing after the confirm would
   // wipe a second answer the student has already started typing on slow wifi.
@@ -558,22 +741,32 @@ async function recordMath(g, r, expected, value, priorAttempts) {
   try { await setDoc(subDoc(state.sessionId, "mathEntries", id), entry); } catch (e) { /* retried on next entry */ }
 }
 
+let lastCelebrated = null;
 function settledScreen() {
   const s = state.session;
   const p = state.player;
   const response = state.responses[key(s.game, s.round)];
   const h = p.balanceHistory || [];
   const change = h.length >= 2 ? h[h.length - 1] - h[h.length - 2] : null;
+  const balNode = el("span", { class: "money big-num accent-text" }, "$" + p.balance);
+  const celebrateKey = `${s.game}_${s.round}_${p.balance}`;
+  if (lastCelebrated !== celebrateKey) {
+    lastCelebrated = celebrateKey;
+    if (change !== null) countUp(balNode, p.balance - change, p.balance);
+    if (change > 1) afterRender.push(() => rain([p.emoji || "💵", "💵", "✨"], { count: Math.min(40, 10 + change * 2) }));
+    else if (change === 1) afterRender.push(() => burst(balNode, ["🏦", "✨"], { count: 8 }));
+  }
   return el("section", null,
     el("p", { class: "round-label" }, roundLabel()),
-    el("h1", null, "Round over"),
-    el("p", null, "Balance ", el("span", { class: "money big-num" }, "$" + p.balance)),
+    el("h1", null, change === null ? "Round over" : change > 1 ? "Your money grew" : change === 1 ? "You banked $1" : "The market took some back"),
+    el("p", { class: "settled-balance" }, "Balance ", balNode),
     change !== null ? el("p", { class: "round-change" },
       el("span", { class: change >= 0 ? "dir-up" : "dir-down" }, change >= 0 ? "▲ " : "▼ ", el("span", { class: "money" }, signedMoney(change))),
       " this round") : null,
     s.game > 0 ? balanceChart(p.balanceHistory || [], p.accentColor) : null,
     s.game === 2 && response ? feedbackItem(response) : null,
-    s.leaderboardVisible ? leaderboardList() : null);
+    s.game === 2 && isTeamRound(2, s.round) && (s.teamBoard || []).length ? teamBoardList() : null,
+    s.leaderboardVisible && !(s.game === 2 && isTeamRound(2, s.round)) ? leaderboardList() : null);
 }
 
 let lastChartEnd = null;
@@ -609,11 +802,33 @@ function balanceChart(history, accent) {
   return svg;
 }
 
+function ordinal(n) { const t = n % 100; if (t >= 11 && t <= 13) return n + "th"; return n + ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"); }
+const MEDALS = { 1: "🥇", 2: "🥈", 3: "🥉" };
+
 function leaderboardList() {
   const list = state.session.leaderboard || [];
+  const me = list.find(x => x.uid === uid());
+  const rankOf = x => x.rank || list.indexOf(x) + 1;
+  const shown = list.slice(0, 5);
+  if (me && !shown.includes(me)) shown.push(me);
   return el("div", { class: "leaderboard" },
     el("h2", null, "Leaderboard"),
-    el("ol", null, list.map(x => el("li", null, nameNode(x), " ", el("span", { class: "money" }, "$" + x.balance)))));
+    me ? el("p", { class: "my-rank" }, `You are ${ordinal(rankOf(me))} of ${list.length}.`) : null,
+    el("ol", { class: "lb-rows" }, shown.map(x => el("li", { class: "lb-row" + (x.uid === uid() ? " lb-me" : "") },
+      el("span", { class: "lb-rank mono" }, MEDALS[rankOf(x)] || String(rankOf(x))),
+      nameNode(x),
+      el("span", { class: "money lb-bal" }, "$" + x.balance)))));
+}
+
+function teamBoardList() {
+  const list = state.session.teamBoard || [];
+  const mine = state.player.teamId;
+  return el("div", { class: "leaderboard" },
+    el("h2", null, "Table standings, average balance"),
+    el("ol", { class: "lb-rows" }, list.map((t, i) => el("li", { class: "lb-row" + (t.teamId === mine ? " lb-me" : "") },
+      el("span", { class: "lb-rank mono" }, MEDALS[i + 1] || String(i + 1)),
+      el("span", null, t.table, t.teamId === mine ? " (your table)" : ""),
+      el("span", { class: "money lb-bal" }, "$" + avgMoney(t.average))))));
 }
 
 // ---------- feedback ----------
@@ -697,13 +912,128 @@ function gameCompleteScreen(game) {
 }
 
 // ---------- CER lesson follow-along ----------
+function cerIndex() { return Math.max(0, Math.min(CER_STEPS.length - 1, (state.session.cerSubStep || 1) - 1)); }
+
 function cerScreen() {
-  const i = Math.max(0, Math.min(CER_STEPS.length - 1, (state.session.cerSubStep || 1) - 1));
+  const i = cerIndex();
   const step = CER_STEPS[i];
-  return el("section", null,
+  switch (step.kind) {
+    case "example": return el("section", null,
+      el("h1", null, step.title),
+      el("p", { class: "scenario" }, step.scenario),
+      el("dl", { class: "cer-parts" }, step.parts.map(([k, v]) => [el("dt", { class: "accent-text" }, k), el("dd", null, v)])));
+    case "talk": return el("section", { class: "center-block talk" },
+      el("p", { class: "hero-emoji", "aria-hidden": "true" }, "🗣️"),
+      el("h1", null, step.title),
+      el("p", { class: "lesson-line" }, step.prompt),
+      timerLine(),
+      el("p", { class: "muted" }, "Talk with your partner. Nothing to type."));
+    case "poll": return cerPoll(i, step);
+    case "guide": return el("section", null, el("h1", null, step.title), guideBlock());
+    default: return el("section", null,
+      el("h1", null, step.title),
+      step.lines.map(l => el("p", { class: "lesson-line" }, l)));
+  }
+}
+
+function cerPoll(i, step) {
+  const answer = state.quiz[`${uid()}_cer_${i}`];
+  const revealed = !!state.session.cerReveal;
+  const parts = [
+    el("p", { class: "round-label" }, "Everyone answers"),
     el("h1", null, step.title),
-    step.lines.map(l => el("p", { class: "lesson-line" }, l)),
-    i === CER_STEPS.length - 1 ? guideBlock() : null);
+    el("p", { class: "scenario" }, step.scenario),
+    el("p", { class: "field" }, step.ask)
+  ];
+  if (revealed) {
+    const right = answer && answer.correct;
+    if (right && celebrated.poll !== i) { celebrated.poll = i; afterRender.push(() => burst(document.querySelector(".poll-result"), ["✨", "⭐"], { count: 14 })); }
+    parts.push(el("div", { class: "options" }, step.options.map((o, k) => el("div", {
+      class: "option-static" + (k === step.answer ? " is-answer" : "") + (answer && answer.choice === k ? " is-mine" : "")
+    }, k === step.answer ? "✔ " : "", o, answer && answer.choice === k ? "  (your answer)" : ""))));
+    parts.push(el("p", { class: "poll-result" }, !answer ? "No answer this time." : right ? `Correct. +${SPARKLE_RIGHT} Sparkle Points.` : `Not this time. ${SPARKLE_WRONG} Sparkle Point.`));
+    parts.push(el("p", null, step.why));
+    return el("section", null, parts);
+  }
+  if (answer) {
+    parts.push(el("div", { class: "options" }, step.options.map((o, k) => el("div", { class: "option-static" + (answer.choice === k ? " is-mine" : "") }, o))));
+    parts.push(el("p", { class: "callout" }, "Answer locked. Wait for your teacher to reveal it."));
+    return el("section", null, parts);
+  }
+  parts.push(el("div", { class: "options" }, step.options.map((o, k) => el("button", { class: "option-btn", onclick: ev => {
+    ev.currentTarget.disabled = true;
+    saveQuizAnswer(`${uid()}_cer_${i}`, { kind: "cer", slot: "cer", qid: "cer" + i, choice: k, correct: k === step.answer });
+  } }, o))));
+  return el("section", null, parts);
+}
+
+// ---------- Sparkle Points quiz ----------
+// Up to three CER analysis questions after each written response, while the class finishes.
+function sparkleTotal() {
+  const i = state.session && state.session.phase === "cer-lesson" ? cerIndex() : -1;
+  const hidden = state.session && !state.session.cerReveal ? `${uid()}_cer_${i}` : null;
+  return Object.values(state.quiz).filter(a => a.id !== hidden).reduce((t, a) => t + (a.points || 0), 0);
+}
+
+function quizSlotFor(g, r) {
+  if (g < 1) return null;
+  return state.responses[key(g, r)] ? `${g}_${r}` : null;
+}
+
+function seededOrder(list, seed) {
+  let h = 2166136261;
+  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  const out = list.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    h = Math.imul(h ^ (h >>> 13), 2246822507) ^ i;
+    const j = (h >>> 0) % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+async function saveQuizAnswer(id, a) {
+  const points = a.correct ? SPARKLE_RIGHT : SPARKLE_WRONG;
+  const rec = { id, uid: uid(), kind: a.kind, slot: a.slot, qid: a.qid, choice: a.choice, correct: a.correct, points, answeredAt: serverTimestamp() };
+  state.quiz[id] = rec;          // shown at once, before the save confirms
+  state.lastKey = null;
+  render();
+  try { const { id: _x, ...data } = rec; await setDoc(subDoc(state.sessionId, "quizAnswers", id), data); }
+  catch (e) { /* already answered on another tab */ }
+}
+
+function quizPanel(slot) {
+  const mine = Object.values(state.quiz).filter(a => a.kind === "quiz");
+  const inSlot = mine.filter(a => a.slot === slot);
+  const show = state.quizShow && state.quizShow.slot === slot ? state.quizShow : null;
+  const wrap = (...kids) => el("aside", { class: "quiz", "aria-label": "Sparkle Points challenge" },
+    el("p", { class: "quiz-top" }, el("span", null, "✨ Sparkle challenge"), el("span", { class: "mono" }, `${Math.min(inSlot.length + (show ? 0 : 1), QUIZ_PER_WAIT)} of ${QUIZ_PER_WAIT}`)), kids);
+
+  if (show) {
+    const q = QUIZ.find(x => x.id === show.qid);
+    if (show.correct && celebrated.quiz !== show.qid) { celebrated.quiz = show.qid; afterRender.push(() => burst(document.querySelector(".quiz-result"), ["✨", "⭐", "💎"], { count: 16 })); }
+    return wrap(
+      el("p", { class: "quiz-result " + (show.correct ? "dir-up" : "dir-down") }, show.correct ? `▲ Correct. +${SPARKLE_RIGHT}` : `▼ Not quite. ${SPARKLE_WRONG}`),
+      el("p", null, el("strong", null, "Answer: "), q.options[q.answer]),
+      el("p", { class: "muted" }, q.why),
+      el("button", { class: "btn", onclick: () => { state.quizShow = null; state.lastKey = null; render(); } },
+        inSlot.length >= QUIZ_PER_WAIT ? "Done" : "Next question"));
+  }
+  if (inSlot.length >= QUIZ_PER_WAIT) return wrap(
+    el("p", { class: "quiz-done" }, `✨ ${sparkleTotal()} Sparkle Points`),
+    el("p", { class: "muted" }, "That is all three for now. More after your next written answer."));
+  const answered = new Set(mine.map(a => a.qid));
+  const q = seededOrder(QUIZ, uid()).find(x => !answered.has(x.id));
+  if (!q) return wrap(el("p", null, "You answered every question in the bank."));
+  return wrap(
+    el("p", { class: "quiz-scenario" }, q.scenario),
+    el("p", { class: "field" }, q.ask),
+    el("div", { class: "options" }, q.options.map((o, k) => el("button", { class: "option-btn", onclick: ev => {
+      ev.currentTarget.disabled = true;
+      const correct = k === q.answer;
+      state.quizShow = { slot, qid: q.id, correct };
+      saveQuizAnswer(`${uid()}_q_${q.id}`, { kind: "quiz", slot, qid: q.id, choice: k, correct });
+    } }, o))));
 }
 
 // ---------- teams ----------
@@ -712,11 +1042,12 @@ function teamScreen(huddle) {
   const team = p.teamId ? state.teams[p.teamId] : null;
   if (!team) return el("section", { class: "center-block" }, el("h1", null, "Teams are being built"));
   return el("section", null,
+    el("p", { class: "hero-emoji", "aria-hidden": "true" }, "🤝"),
     el("h1", null, `${team.table}, seat ${p.seat}`),
     huddle ? el("p", { class: "callout" }, "Defend your Game 1 approach to your table. About 45 seconds each.") : el("p", null, "Find your table and sit down."),
     huddle ? timerLine() : null,
     el("h2", null, "Your table"),
-    el("ul", { class: "members" }, team.members.map(m => el("li", null, m.preferredName, m.uid === p.uid ? " (you)" : ""))));
+    el("ul", { class: "members" }, team.members.map(m => el("li", null, (m.emoji ? m.emoji + " " : "") + displayName(m), m.uid === p.uid ? " (you)" : ""))));
 }
 
 // ---------- the probe and the counterfactual ----------
@@ -782,7 +1113,9 @@ function peerScreen() {
   if (!a.items.length) return el("section", { class: "center-block" }, el("h1", null, "No responses to score"), el("p", null, "Wait for your teacher."));
   const done = peerDone();
   const item = a.items.find(it => !done.includes(it.anonId));
-  if (!item) return el("section", { class: "center-block" }, el("h1", null, "Both scores submitted"), el("p", null, "Wait for the class."));
+  if (!item) return el("section", { class: "wait-split" },
+    el("div", { class: "wait-head" }, el("p", { class: "stamp", "aria-hidden": "true" }, "✅"), el("h1", null, "Both scores submitted"), el("p", null, "Wait for the class.")),
+    quizPanel("peer"));
   const idx = a.items.indexOf(item) + 1;
   let level = null;
   const noteId = "peer-" + item.anonId;
@@ -876,13 +1209,16 @@ function biasSurveyScreen() {
 function debriefScreen() {
   return el("section", null,
     el("h1", null, "Seven mind traps"),
-    el("dl", { class: "term-list" }, MIND_TRAPS.map(t => [el("dt", null, t.name), el("dd", null, t.def)])));
+    el("dl", { class: "traps-list" }, MIND_TRAPS.map(t => [el("dt", { class: "accent-text" }, t.name),
+      el("dd", null, t.def + ".", el("span", { class: "trap-life" }, "In real life: " + t.life))])));
 }
 
 function exitScreen() {
   const id = key(0, 0);
   const existing = state.responses[id];
-  if (existing) return el("section", null, el("h1", null, "Exit ticket submitted"), feedbackItem(existing));
+  if (existing) return el("section", { class: "wait-split" },
+    el("div", { class: "wait-head" }, el("h1", null, "Exit ticket submitted"), feedbackItem(existing)),
+    quizPanel("exit"));
   const d = drafts[id] || (drafts[id] = { text: "" });
   const ta = el("textarea", { id: "exit-text", maxlength: "1500", "aria-label": "Your answer" });
   ta.value = d.text;
@@ -905,7 +1241,8 @@ function closureScreen() {
   const id = key(0, 9);
   const existing = state.responses[id];
   const head = [el("p", { class: "objective-big" }, OBJECTIVE)];
-  if (existing) return el("section", null, head, el("h1", null, "Answers submitted"));
+  if (existing) return el("section", { class: "center-block" }, head, el("p", { class: "hero-emoji", "aria-hidden": "true" }, "🎉"), el("h1", null, "Answers submitted"),
+    el("p", null, `Final Sparkle Points: ✨ ${sparkleTotal()}`));
   const d = drafts[id] || (drafts[id] = { a: "", b: "" });
   const a = el("textarea", { id: "closure-a", maxlength: "600", "aria-label": CLOSURE_QUESTIONS[0] });
   const b = el("textarea", { id: "closure-b", maxlength: "600", "aria-label": CLOSURE_QUESTIONS[1] });

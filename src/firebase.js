@@ -4,17 +4,19 @@ import {
   getAuth, GoogleAuthProvider, signInWithPopup, signInAnonymously,
   onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { initializeFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./shared/firebase-config.js";
 
 export {
-  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where,
+  doc, getDoc, getDocFromServer, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where,
   onSnapshot, serverTimestamp, Timestamp, writeBatch, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Long polling is detected automatically. School networks that block the
+// streaming connection fall back to it instead of silently freezing the screen.
+export const db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
 
 export const TEACHER_EMAIL = "bweaver@greermiddlecollege.org";
 export const OBSERVER_EMAIL = "jlowman@greermiddlecollege.org";

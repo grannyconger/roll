@@ -62,8 +62,9 @@ async function enterCode(page, code) {
   await page.locator("#code").fill(code);
   await page.getByRole("button", { name: "Join", exact: true }).click();
 }
-async function fillProfileAndJoin(page) {
-  await page.locator("#pname").fill("Tester");
+async function fillProfileAndJoin(page, first = "Tester", last = "Person") {
+  await page.locator("#pname").fill(first);
+  await page.locator("#plast").fill(last);
   await page.locator(".emoji").first().click();
   await page.locator(".swatch").first().click();
   await page.getByRole("button", { name: "Join", exact: true }).click();
@@ -74,57 +75,62 @@ const teacher = await open("teacher.html");
 await shows(teacher, /Sign in with Google/);
 await google(teacher, "bweaver@greermiddlecollege.org");
 await shows(teacher, /Pick a class session/);
-await teacher.getByRole("button", { name: "New 2B session" }).click();
+await teacher.getByRole("button", { name: "New 4B session" }).click();
 await teacher.waitForURL(/\?s=/);
-await shows(teacher, /2B hub/);
+await shows(teacher, /4B hub/);
 const code = (await teacher.locator(".hub-head strong").innerText()).trim();
 const toggle = async label => { await teacher.locator("button.toggle", { hasText: label }).first().click(); await teacher.waitForTimeout(600); };
 
-// A. class code with class code sign-in off
+// A. no Google button on the student page, the class code is the way in
 const a = await open("index.html");
-await shows(a, /Sign in with Google/);
-await a.getByRole("button", { name: "Sign in with the class code instead" }).click();
+ok(await shows(a, /Enter the class code/), "student page opens on the class code");
+ok(!/Sign in with Google/.test(await bodyText(a)), "student page has no Google sign-in button");
 await enterCode(a, code);
-ok(await shows(a, /Class code sign-in is off/), "class code student with sign-in off is told at the code step");
+ok(await shows(a, /Join the class/), "class code is accepted by default");
+await a.locator("#pname").fill("Ana");
+await a.locator(".emoji").first().click();
+await a.locator(".swatch").first().click();
+await a.getByRole("button", { name: "Join", exact: true }).click();
+ok(await shows(a, /Enter your last name/), "a last name is required");
+await a.locator("#plast").fill("Lopez");
+await a.getByRole("button", { name: "Join", exact: true }).click();
+ok(await shows(a, /Objective:/), "class code student joins with first and last name");
+ok(/Ana L\./.test(await bodyText(a)), "classmates see first name and last initial");
 
-// B. a Google account outside the school domain
-const c = await open("index.html");
-await shows(c, /Sign in with Google/);
-await google(c, "someone@gmail.com");
-await enterCode(c, code);
-await shows(c, /Join the class/);
-await fillProfileAndJoin(c);
-ok(await shows(c, /is not a school account/), "a non-school Google account sees why the join failed");
-ok(!/Objective:/.test(await bodyText(c)), "the non-school account did not get in");
+// B. the same name on a second laptop is asked about first
+const b = await open("index.html");
+await enterCode(b, code);
+await shows(b, /Join the class/);
+await fillProfileAndJoin(b, "Ana", "Lopez");
+ok(await shows(b, /already joined/), "a second Ana L. is warned before joining");
+await b.getByRole("button", { name: "Join", exact: true }).click();
+ok(await shows(b, /Objective:/), "pressing Join again lets a different Ana L. in");
 
-// C. teacher turns it on, the class code student tries again
+// C. teacher turns class code sign-in off
 await toggle("Class code sign-in");
-await enterCode(a, code);
-ok(await shows(a, /Join the class/), "after the teacher turns it on, the code is accepted");
-await fillProfileAndJoin(a);
-ok(await shows(a, /Objective:/), "class code student joins");
+const c = await open("index.html");
+await enterCode(c, code);
+ok(await shows(c, /Class code sign-in is off/), "with class code sign-in off, a new student is told at the code step");
+await toggle("Class code sign-in");
 
-// D. a school Google account
-const d = await open("index.html");
-await shows(d, /Sign in with Google/);
-await google(d, "student.one@greermiddlecollege.org");
-await enterCode(d, code);
-await shows(d, /Join the class/);
-await fillProfileAndJoin(d);
-ok(await shows(d, /Objective:/), "school Google account joins");
-
-// E. joining locked
+// D. joining locked
 await toggle("Joining locked");
-const e = await open("index.html");
-await shows(e, /Sign in with Google/);
-await google(e, "student.two@greermiddlecollege.org");
-await enterCode(e, code);
-ok(await shows(e, /Joining is closed/), "with joining locked, a new student is told at the code step");
+const d = await open("index.html");
+await enterCode(d, code);
+ok(await shows(d, /Joining is closed/), "with joining locked, a new student is told at the code step");
 
-// F. a student who already joined can still get back in while joining is locked
-const d2 = await d.context().newPage();
-await d2.goto(`http://localhost:${PORT}/index.html`);
-ok(await shows(d2, /Objective:/), "an already-joined student gets back in while joining is locked");
+// E. a student who already joined gets back in after a reload while joining is locked
+const a2 = await a.context().newPage();
+await a2.goto(`http://localhost:${PORT}/index.html`);
+ok(await shows(a2, /Objective:/), "an already-joined student gets back in while joining is locked");
+
+// F. the teacher removes the duplicate
+await toggle("Joining locked");
+await shows(teacher, /share a name/);
+const dupRow = teacher.locator(".student-row").last();
+await dupRow.getByRole("button", { name: "Remove" }).click();
+await teacher.getByRole("button", { name: "Confirm remove" }).click();
+ok(await shows(teacher, /Students \(1\)/), "teacher removes a duplicate student");
 
 await browser.close();
 server.close();

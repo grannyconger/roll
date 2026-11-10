@@ -6,11 +6,13 @@ import {
 import { sessionRef, subDoc, serverNow } from "../session.js";
 import {
   GAMES, START_BALANCE, rollMarket, decideSecondsFor, isDoubleRound, isTeamRound, recomputeHistory,
-  classifyClass, buildTeams, assignPeerReviews, averageBalance, valueOfChoice
+  classifyClass, buildTeams, assignPeerReviews, averageBalance, valueOfChoice, rankPlayers, teamStandings
 } from "../game.js";
+import { CER_STEPS } from "../shared/content.js";
 import { assessorUrl, setAssessorUrl } from "../shared/config.js";
 
-export const ROLL_ANIMATION_MS = 9000;
+// The reveal on the display runs about 15 seconds. The hub reveals on its own after this.
+export const ROLL_ANIMATION_MS = 16500;
 
 export function endsIn(seconds) {
   return Timestamp.fromMillis(serverNow() + seconds * 1000);
@@ -27,7 +29,7 @@ export async function createSectionSession(section, teacherUid) {
   await setDoc(doc(db, "sessions", sessionId), {
     sessionId, section, teacherUid,
     classCode: randomCode(5, "ABCDEFGHJKLMNPQRSTUVWXYZ"),
-    allowAnonymous: false, joinLocked: false, createdAt: serverTimestamp(),
+    allowAnonymous: true, joinLocked: false, createdAt: serverTimestamp(),
     phase: "lobby", phaseStartedAt: serverTimestamp(), game: 0, round: 0, roundState: null, roundEndsAt: null,
     isDoubleRound: false, isTeamRound: false, cerSubStep: null, ruleStep: 0,
     leaderboardVisible: false, vocabModeVisible: false, teamSeatingVisible: false,
@@ -48,9 +50,9 @@ export function makeEngine(ctx) {
   async function goToPhase(phase, extra = {}) {
     const patch = { phase, phaseStartedAt: serverTimestamp(), roundEndsAt: null, ...extra };
     if (!["game1", "game2", "learn-to-play"].includes(phase)) patch.roundState = null;
-    if (phase === "feedback-1") patch.roundEndsAt = endsIn(120);
-    if (phase === "cer-lesson") patch.cerSubStep = 1;
-    if (phase === "team-huddle") patch.roundEndsAt = endsIn(180);
+    if (phase === "feedback-1") patch.roundEndsAt = endsIn(105);
+    if (phase === "cer-lesson") { patch.cerSubStep = 1; patch.cerReveal = false; }
+    if (phase === "team-huddle") patch.roundEndsAt = endsIn(165);
     if (phase === "exit-ticket") patch.roundEndsAt = endsIn(420);
     if (phase === "peer-scoring") patch.roundEndsAt = endsIn(240);
     if (phase !== "team-assignment" && phase !== "team-huddle") patch.teamSeatingVisible = false;
@@ -174,13 +176,17 @@ export function makeEngine(ctx) {
       const history = recomputeHistory(p, g, rollsByRound, decisionsByRound);
       const balance = history[history.length - 1];
       batch.update(subDoc(sid, "players", p.uid), { balance, balanceHistory: history });
-      board.push({ uid: p.uid, preferredName: p.preferredName, emoji: p.emoji, accentColor: p.accentColor, balance });
+      board.push({ uid: p.uid, preferredName: p.preferredName, lastInitial: p.lastInitial || "", emoji: p.emoji, accentColor: p.accentColor, balance, balanceHistory: history });
     }
     await batch.commit();
-    board.sort((a, b) => b.balance - a.balance);
+    const ranked = rankPlayers(board).map(({ balanceHistory, ...x }) => x);
+    const balances = Object.fromEntries(board.map(b => [b.uid, b.balance]));
+    const teamBoard = g === 2 && isTeamRound(2, s.round) && Object.keys(S().teams).length
+      ? teamStandings(Object.values(S().teams), u => balances[u]) : [];
     await setSession({
       roundState: "settled",
-      leaderboard: g === 0 ? [] : board,
+      leaderboard: g === 0 ? [] : ranked,
+      teamBoard,
       classAverageBalance: averageBalance(board.map(b => b.balance))
     });
   }
@@ -204,7 +210,8 @@ export function makeEngine(ctx) {
     });
     const archetypes = classifyClass(entries);
     const students = players().map(p => ({
-      uid: p.uid, preferredName: p.preferredName, archetype: archetypes[p.uid], cerLevel: cerLevelFor(p.uid, 1)
+      uid: p.uid, preferredName: p.preferredName, lastInitial: p.lastInitial || "", emoji: p.emoji || "",
+      archetype: archetypes[p.uid], cerLevel: cerLevelFor(p.uid, 1)
     }));
     const teams = buildTeams(students);
     const batch = writeBatch(db);
@@ -214,7 +221,7 @@ export function makeEngine(ctx) {
       for (const m of t.members) batch.update(subDoc(sid, "players", m.uid), { archetype: m.archetype, teamId: t.teamId, seat: m.seat });
     }
     await batch.commit();
-    await goToPhase("team-assignment", { teamSeatingVisible: true, roundEndsAt: endsIn(60) });
+    await goToPhase("team-assignment", { teamSeatingVisible: true, roundEndsAt: endsIn(45) });
   }
 
   function cerLevelFor(uid, game) {
@@ -261,6 +268,57 @@ export function makeEngine(ctx) {
     batch.set(subDoc(sid, "feedback", "peer-map"), { uid: S().user.uid, kind: "peer-map", map });
     await batch.commit();
     await goToPhase("peer-scoring");
+  }
+
+  // CER lesson steps. A talk step starts its own timer. A poll waits for the reveal.
+  async function goToCerStep(step) {
+    const def = CER_STEPS[step - 1];
+    await setSession({ cerSubStep: step, cerReveal: false, roundEndsAt: def && def.kind === "talk" ? endsIn(def.seconds || 60) : null });
+  }
+
+  async function revealCerPoll() {
+    await setSession({ cerReveal: true });
+  }
+
+  // Drag and drop on the hub. Moves one student to another table and renumbers seats.
+  async function moveToTeam(uid, toTeamId) {
+    const teams = S().teams;
+    const from = Object.values(teams).find(t => t.members.some(m => m.uid === uid));
+    const to = teams[toTeamId];
+    if (!to || (from && from.teamId === toTeamId)) return;
+    const member = from ? from.members.find(m => m.uid === uid) : null;
+    const p = S().players[uid] || {};
+    const moving = member || { uid, preferredName: p.preferredName, lastInitial: p.lastInitial || "", emoji: p.emoji || "", archetype: p.archetype || null, cerLevel: 1 };
+    const seat = list => list.map((m, i) => ({ ...m, seat: i + 1 }));
+    const toMembers = seat(to.members.concat([moving]));
+    const batch = writeBatch(db);
+    if (from) {
+      const fromMembers = seat(from.members.filter(m => m.uid !== uid));
+      batch.update(subDoc(sid, "teams", from.teamId), { members: fromMembers, size: fromMembers.length });
+      for (const m of fromMembers) if (S().players[m.uid]) batch.update(subDoc(sid, "players", m.uid), { seat: m.seat });
+    }
+    batch.update(subDoc(sid, "teams", toTeamId), { members: toMembers, size: toMembers.length });
+    for (const m of toMembers) if (S().players[m.uid]) batch.update(subDoc(sid, "players", m.uid), { teamId: toTeamId, seat: m.seat });
+    await batch.commit();
+  }
+
+  async function addTable() {
+    const n = Object.keys(S().teams).length + 1;
+    await setDoc(subDoc(sid, "teams", `t${n}`), { teamId: `t${n}`, table: `Table ${n}`, size: 0, members: [], createdAt: serverTimestamp() });
+  }
+
+  // Duplicate students, usually a second copy from a second laptop. The record
+  // and the roster entry go. Their decisions stay in the data but no longer count.
+  async function removePlayer(uid) {
+    const batch = writeBatch(db);
+    batch.delete(subDoc(sid, "players", uid));
+    batch.delete(subDoc(sid, "roster", uid));
+    for (const t of Object.values(S().teams)) {
+      if (!t.members.some(m => m.uid === uid)) continue;
+      const members = t.members.filter(m => m.uid !== uid).map((m, i) => ({ ...m, seat: i + 1 }));
+      batch.update(subDoc(sid, "teams", t.teamId), { members, size: members.length });
+    }
+    await batch.commit();
   }
 
   async function pushBiasSurvey() {
@@ -335,6 +393,7 @@ export function makeEngine(ctx) {
     goToPhase, startLearnToPlay, showNextRule, startPracticeRounds, startGame1, startGame2, startRound,
     addThirtySeconds, lockDecisions, rollTheDice, revealRoll, entryProgress, settleRound, startNextRound,
     buildStrategyTeams, startPeerScoring, pushBiasSurvey, closeBiasSurvey, overrideScore, pickNonVolunteer,
+    goToCerStep, revealCerPoll, moveToTeam, addTable, removePlayer,
     retryPendingAssessments, assessorHealth, levelOf, setSession
   };
 }

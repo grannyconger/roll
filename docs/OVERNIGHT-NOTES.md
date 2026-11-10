@@ -4,10 +4,24 @@ Written by the build run. Updated after every step.
 
 ## Before class
 
-1. **Add `www.coachw.club` to Firebase authorized domains**, if not done. Firebase console, Authentication, Settings, Authorized domains. Google sign-in fails on an unlisted domain. Class-code sign-in works without it.
+1. **Add `www.coachw.club` to Firebase authorized domains**, if not done. Needed for the teacher hub and display sign-in. Students no longer use Google.
 2. **Dry run on real laptops.** Covers what the local dry run cannot: Google sign-in on the district network, real AI scoring writing back to students, and the room.
 3. **Decide on screen height.** On a 768px tall screen several student screens put the main button below the fold, worst on peer scoring and the bias survey. If the Dells are 768px, tighten spacing on those screens.
 4. **Delete the service account file** from Downloads if it is still there.
+
+## November 10 changes
+
+- Students join with the class code only, then first and last name. Classmates see first name and last initial. Google sign-in is hidden on the student page and stays in the code at `?google=1`. New sessions start with class code sign-in on.
+- A second record with the same name is warned before joining. The hub's Students panel marks duplicates and has a Remove button.
+- Student screens check the server every 8 seconds and catch up if the live listener stalls. Firestore falls back to long polling on networks that block streaming.
+- The student view runs in full screen.
+- The student's chosen color drives every button and highlight.
+- Timers cut by 15 seconds except written responses. Practice 30, normal 45, team 105, team assignment 45, feedback 105, huddle 165. Checkpoints, exit ticket, and peer scoring unchanged.
+- Sparkle Points: up to three CER analysis questions after each written response, peer scoring, and the exit ticket. +3 right, -1 wrong. 36 questions in `src/shared/content.js`.
+- CER lesson is 14 steps with real-life examples, three turn and talks, and four live polls.
+- Display: bigger dice, a 15 second cinematic roll, a synthesized drumroll under the direction die, a full ranked leaderboard of every student, an emoji wall in the lobby and during decide rounds, and a table leaderboard by average balance in Game 2 rounds 1 to 4.
+- Hub: drag and drop between tables, Add a table, display drumroll toggle.
+- **Needs a deploy of `firestore.rules`** for the new `quizAnswers` collection, or Sparkle Points and polls will not save.
 
 ## Live URLs
 

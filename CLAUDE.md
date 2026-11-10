@@ -21,7 +21,7 @@ checking `docs/RUBRIC-MAP.md` first.
 | --- | --- | --- |
 | Hosting | GitHub Pages | Static only. No server-side rendering. |
 | Realtime + data | Firebase Firestore | Single source of truth for all shared state |
-| Auth | Firebase Google Auth | Restricted to the school Workspace domain, with a class-code fallback |
+| Auth | Firebase anonymous auth plus class code | Students join with the class code only. Google sign-in stays in the code for the teacher, the display, and the observer, and for students at `?google=1` |
 | AI assessor | Cloudflare Worker | Holds the Anthropic API key as a server secret |
 
 The API key must never appear in client code, in the repo, or in any committed file.
@@ -97,16 +97,18 @@ Mono numerals for money figures are a functional exception and are allowed.
 
 ### Motion
 
-Whimsy is reserved for reward moments: the dice roll, the market move, the balance
-change, feedback arriving. Everything else is calm and still. There is no ambient
-motion during writing time, which is an accessibility requirement and not a taste
-preference.
+Whimsy runs through the whole experience at moments: joining, locking in, the dice
+roll, the market move, the balance change, a right answer, feedback arriving, a new
+screen arriving. Each is a short burst that ends on its own. There is no ambient
+motion during reading or writing time, which is an accessibility requirement and not a
+taste preference. Nothing loops while a student is typing.
 
 All motion respects `prefers-reduced-motion`.
 
 ### Sound
 
-The site is silent. No audio of any kind. The teacher uses a physical chime.
+Student screens are silent. The classroom display plays one synthesized drumroll under
+the direction die, and the hub can turn it off. The teacher uses a physical chime.
 
 ### Student text is data
 
@@ -121,6 +123,7 @@ These students include neurodivergent and ADHD learners, and the design targets 
 by default rather than as an accommodation layer.
 
 - One task visible at a time. Never show a student two things they could be doing.
+  The Sparkle Points challenge appears only after the student's task is submitted.
 - Time remaining is always explicit when a task is timed.
 - A dyslexia-friendly font toggle is available on the student view and the display.
   **Every layout must be verified in both font states.** OpenDyslexic has wider
@@ -129,6 +132,9 @@ by default rather than as an accommodation layer.
 - No flashing, no autoplay, no motion during reading or writing tasks.
 
 ### Platform
+
+The student view runs in full screen. Leaving it covers the page until the student
+clicks back in.
 
 Desktop only. Do not write responsive breakpoints for phones or tablets. Students are
 on Dell Latitudes. The display is a smartboard.

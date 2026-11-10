@@ -115,6 +115,17 @@ service cloud.firestore {
         allow create: if isMine(request.resource.data.reviewerUid);
       }
 
+      match /quizAnswers/{docId} {
+        // Sparkle Points quiz and CER lesson polls. Answers hold only an option
+        // index, never student text, so the display can count them. One answer
+        // per question, filed under the author's own uid, never changed after.
+        allow read: if request.auth != null;
+        allow create: if isMine(request.resource.data.uid)
+          && docId.split('_')[0] == request.auth.uid
+          && request.resource.data.choice is int;
+        allow delete: if isTeacher();
+      }
+
       match /biasSurveys/{docId} {
         allow read: if isTeacher() || isObserver();
         allow create, update: if isMine(request.resource.data.uid);
